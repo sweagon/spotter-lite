@@ -1,0 +1,23 @@
+# python
+__pycache__/
+*.py[cod]
+venv/
+.env
+
+# django
+backend/db.sqlite3
+backend/staticfiles/
+backend/media/
+
+# node
+node_modules/
+frontend/dist/
+
+# misc
+.DS_Store
+*.log
+
+# reference material for the assessment (not part of the app)
+*.pdf
+*.docx
+*.png

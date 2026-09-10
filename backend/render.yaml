@@ -1,0 +1,21 @@
+# Render blueprint — backend Django API.
+# Push this repo to GitHub, New -> Blueprint -> pick this file.
+services:
+  - type: web
+    name: spotter-backend
+    runtime: python
+    rootDir: backend
+    plan: free
+    buildCommand: "pip install -r requirements.txt && python manage.py collectstatic --noinput"
+    startCommand: "gunicorn spotter_backend.wsgi:application --bind 0.0.0.0:$PORT --workers 2"
+    healthCheckPath: /api/health/
+    envVars:
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DJANGO_DEBUG
+        value: "False"
+      - key: DJANGO_ALLOWED_HOSTS
+        value: "spotter-backend.onrender.com,*.onrender.com,localhost,127.0.0.1"
+      - key: DJANGO_CORS_ALLOW_ALL
+        # the frontend may live on a few vercel domains; keep it simple
+        value: "True"
