@@ -1,0 +1,9 @@
+/* keep this file tiny — real styling lives in App.css.
+   just normalize the base so leaflet + our styles behave predictably. */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+html, body, #root {
+  margin: 0;
+  padding: 0;
+}
