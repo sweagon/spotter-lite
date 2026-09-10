@@ -1,7 +1,11 @@
 import { useRef, useState } from "react";
 import "./App.css";
+import LogoMark from "./components/LogoMark";
+import GeocodeField from "./components/GeocodeField";
 import RouteMap from "./components/RouteMap";
 import LogSheet from "./components/LogSheet";
+import HoursCluster from "./components/HoursCluster";
+import StopTimeline from "./components/StopTimeline";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
@@ -15,12 +19,19 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
-  const resultsRef = useRef(null);
+  const canvasRef = useRef(null);
 
-  const onField = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+  const valid =
+    form.current_location.trim() &&
+    form.pickup_location.trim() &&
+    form.dropoff_location.trim() &&
+    form.current_cycle_used !== "";
+
+  const onField = (key) => (value) => setForm((f) => ({ ...f, [key]: value }));
 
   async function submit(e) {
     e.preventDefault();
+    if (!valid) return;
     setLoading(true);
     setError(null);
     setResult(null);
@@ -39,7 +50,7 @@ export default function App() {
         throw new Error(detail || "Invalid request");
       }
       setResult(data);
-      setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: "smooth" }), 80);
+      canvasRef.current?.scrollIntoView({ behavior: "smooth" });
     } catch (err) {
       setError(err.message || "Something went wrong. Try different locations.");
     } finally {
@@ -49,151 +60,168 @@ export default function App() {
 
   return (
     <div className="app">
-      <header className="app-header">
-        <div className="brand">
-          <div className="brand-mark">◆</div>
-          <h1>
-            Spotter <span>trip planner</span>
-          </h1>
+      <header className="topbar">
+        <div className="topbar-brand">
+          <LogoMark />
         </div>
-        <p className="tagline">
-          Plan a load, see the route, and get the federal hours-of-service log
-          sheets — computed against the 11/14/8/70 rules of 49&nbsp;CFR&nbsp;§395.
-        </p>
+        <span className="topbar-label">trip planner</span>
       </header>
 
-      <section className="panel form-panel">
-        <TripForm form={form} onField={onField} onSubmit={submit} loading={loading} />
-        {error && (
-          <div className="banner banner-error">
-            <strong>Could not plan that trip.</strong> {error}
-          </div>
-        )}
-      </section>
-
-      {loading && (
-        <section className="panel loading-panel">
-          <div className="spinner" />
-          <p>Geocoding locations, fetching the route from OSRM, and walking the HOS timeline minute-by-minute…</p>
-        </section>
-      )}
-
-      {result && (
-        <section ref={resultsRef} className="results">
-          <TripSummary
-            route={result.route}
-            stops={result.stops}
-            totalLogs={result.daily_logs.length}
+      <div className="shell">
+        <aside className="rail">
+          <TripForm
+            form={form}
+            onField={onField}
+            onSubmit={submit}
+            loading={loading}
+            valid={valid}
           />
-
-          <div className="results-grid">
-            <RouteMap geometry={result.route.geometry} stops={result.stops} />
-            <div className="panel stops-panel">
-              <h3>Stops along the way</h3>
-              <p className="muted-copy">
-                Pickup and dropoff include 1&nbsp;hr of on-duty-not-driving each. Fuel
-                stops are forced every 1,000 miles; 30-min breaks land after 8 hrs
-                of cumulative driving.
-              </p>
-              <ol className="stops-list">
-                {result.stops.map((s, i) => (
-                  <li key={i}>
-                    <span className={`stop-dot stop-dot-${s.status}`} />
-                    <div className="stop-info">
-                      <strong>{s.label}</strong>
-                      <span className="muted">
-                        {s.kind} · {s.time} · {s.duration_min} min · {s.location}
-                      </span>
-                    </div>
-                  </li>
-                ))}
-              </ol>
+          {error && (
+            <div className="panel-error" role="alert">
+              <p className="panel-error-title">Could not plan that trip.</p>
+              <p>{error}</p>
             </div>
-          </div>
+          )}
+        </aside>
 
-          <h2 className="section-title">Daily driver's logs</h2>
-          <div className="logs-list">
-            {result.daily_logs.map((day, i) => (
-              <LogSheet key={i} day={day} index={i} />
-            ))}
-          </div>
-        </section>
-      )}
+        <main className="canvas" ref={canvasRef}>
+          {!result && !loading && <EmptyState />}
+
+          {loading && <LoadingState />}
+
+          {result && (
+            <div className="results">
+              <RouteSummary
+                route={result.route}
+                pickup={form.pickup_location.trim()}
+                dropoff={form.dropoff_location.trim()}
+              />
+
+              <RouteMap geometry={result.route.geometry} stops={result.stops} />
+
+              <HoursCluster usage={result.usage} />
+
+              <StopTimeline stops={result.stops} />
+
+              <h2 className="section-head">Daily logs</h2>
+              <div className="logs">
+                {result.daily_logs.map((day, i) => (
+                  <div key={i} className="sheet-stagger" style={{ animationDelay: `${i * 150}ms` }}>
+                    <LogSheet day={day} index={i} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </main>
+      </div>
     </div>
   );
 }
 
-function TripForm({ form, onField, onSubmit, loading }) {
+function TripForm({ form, onField, onSubmit, loading, valid }) {
   return (
     <form className="trip-form" onSubmit={onSubmit}>
-      <label>
-        Current location
-        <input
-          type="text"
-          value={form.current_location}
-          onChange={onField("current_location")}
-          placeholder="e.g. Dallas, TX"
-          required
-        />
+      <h2 className="rail-title">Plan a trip</h2>
+      <GeocodeField
+        label="Current location"
+        value={form.current_location}
+        onChange={onField("current_location")}
+        placeholder="Dallas, TX"
+      />
+      <GeocodeField
+        label="Pickup location"
+        value={form.pickup_location}
+        onChange={onField("pickup_location")}
+        placeholder="Memphis, TN"
+      />
+      <GeocodeField
+        label="Dropoff location"
+        value={form.dropoff_location}
+        onChange={onField("dropoff_location")}
+        placeholder="Chicago, IL"
+      />
+      <label className="field">
+        <span className="field-label">Cycle used</span>
+        <span className="field-input-wrap cycle-wrap">
+          <input
+            className="num"
+            type="number"
+            min="0"
+            max="70"
+            step="0.5"
+            value={form.current_cycle_used}
+            onChange={(e) => onField("current_cycle_used")(e.target.value)}
+            placeholder="30"
+            required
+          />
+          <span className="cycle-unit">hrs</span>
+        </span>
       </label>
-      <label>
-        Pickup location
-        <input
-          type="text"
-          value={form.pickup_location}
-          onChange={onField("pickup_location")}
-          placeholder="e.g. Memphis, TN"
-          required
-        />
-      </label>
-      <label>
-        Dropoff location
-        <input
-          type="text"
-          value={form.dropoff_location}
-          onChange={onField("dropoff_location")}
-          placeholder="e.g. Chicago, IL"
-          required
-        />
-      </label>
-      <label className="cycle-field">
-        Cycle used (hrs)
-        <input
-          type="number"
-          min="0"
-          max="70"
-          step="0.5"
-          value={form.current_cycle_used}
-          onChange={onField("current_cycle_used")}
-          placeholder="e.g. 30"
-          required
-        />
-        <small>of your 70-hr / 8-day window</small>
-      </label>
-      <button type="submit" className="btn-primary" disabled={loading}>
+      <button
+        type="submit"
+        className="btn-plan"
+        disabled={!valid || loading}
+      >
         {loading ? "Planning…" : "Plan trip"}
       </button>
     </form>
   );
 }
 
-function TripSummary({ route, stops, totalLogs }) {
-  const driveHrs = (route.driving_minutes / 60).toFixed(1);
+function RouteSummary({ route, pickup, dropoff }) {
   return (
-    <div className="trip-summary">
-      <SummaryItem num={route.distance_miles} label="miles" />
-      <SummaryItem num={driveHrs} label="hours driving" />
-      <SummaryItem num={stops.length} label="stops" />
-      <SummaryItem num={totalLogs} label="log sheets" />
+    <div className="route-summary">
+      <span>{pickup}</span>
+      <span className="route-arrow">→</span>
+      <span>{dropoff}</span>
+      <span className="route-sep">·</span>
+      <span className="num route-miles">{route.distance_miles}</span>
+      <span className="route-unit">mi</span>
+      {route.highways?.length > 0 && (
+        <>
+          <span className="route-sep">·</span>
+          <span className="roadshield">{route.highways.join(" / ")}</span>
+        </>
+      )}
     </div>
   );
 }
 
-function SummaryItem({ num, label }) {
+function EmptyState() {
   return (
-    <div className="summary-item">
-      <span className="summary-num">{num}</span>
-      <span className="summary-label">{label}</span>
+    <div className="empty">
+      <EmptyGrid />
+      <p className="empty-copy">enter a trip to generate the route and logs.</p>
+    </div>
+  );
+}
+
+/** faint, unfilled version of the log grid as the empty-state placeholder */
+function EmptyGrid() {
+  const rows = [4, 0, 1, 3]; // off duty / sleeper / driving / on duty row lines
+  return (
+    <svg className="empty-grid" viewBox="0 0 560 200" aria-hidden="true">
+      {rows.map((y) => (
+        <line key={y} x1="0" x2="560" y1={40 + y * 32} y2={40 + y * 32} stroke="#0a4e61" strokeWidth="1" />
+      ))}
+      {Array.from({ length: 25 }, (_, h) => (
+        <line key={h} x1={(h / 24) * 520 + 20} x2={(h / 24) * 520 + 20} y1="40" y2="170" stroke="#043b4c" />
+      ))}
+    </svg>
+  );
+}
+
+function LoadingState() {
+  return (
+    <div className="loading">
+      <div className="sk-map" />
+      <div className="sk-row">
+        <div className="sk-gauge" />
+        <div className="sk-gauge" />
+        <div className="sk-gauge" />
+      </div>
+      <div className="sk-log" />
     </div>
   );
 }

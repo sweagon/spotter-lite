@@ -1,14 +1,16 @@
 import { useMemo } from "react";
 
 /**
- * FMCSA-style driver's daily log, drawn as SVG (no screenshots / no pdf).
+ * FMCSA-style daily driver's log, as SVG. geometry follows the real 395.8
+ * form: 4 duty rows, midnight-to-midnight hour axis with quarter-hour
+ * sub-ticks, a stepped duty line, totals column, remarks row.
  *
- * layout mirrors the real 395.8 form:
- *   - 4 horizontal duty rows: off duty / sleeper berth / driving / on-duty(not driving)
- *   - 0-24 hour axis with hour lines + quarter-hour sub-ticks
- *   - a stepped line (the "graph") moving between rows as duty status changes
- *   - a totals column on the right that adds up to 24
- *   - a remarks row underneath listing each status change + location
+ * two product choices on top of the faithful grid:
+ *   - the duty line is color-coded BY STATUS (coral driving / teal on-duty /
+ *     mint sleeper / ink off-duty) AND given a distinct dash pattern per
+ *     status, so the compliance doc stays readable for colorblind viewers.
+ *   - totals are set in mono with a checksum rule underneath — the sheet
+ *     must sum to 24 and it should visibly look like it.
  */
 
 const ROWS = [
@@ -19,49 +21,78 @@ const ROWS = [
 ];
 const ROW_INDEX = Object.fromEntries(ROWS.map((r, i) => [r.key, i]));
 
-const VIEW = { w: 1120, h: 430 };
-const MARGIN = { left: 170, right: 90, top: 52, bottom: 96 };
+const STATUS_STROKE = {
+  off_duty: "#5c747c", // ink-400, dark enough to read against the paper
+  sleeper_berth: "#008080",
+  driving: "#f84960",
+  on_duty_not_driving: "#006b6b",
+};
+const STATUS_DASH = {
+  off_duty: null, // thin, solid
+  sleeper_berth: "2 5", // dotted
+  driving: null, // solid
+  on_duty_not_driving: "6 4", // dashed
+};
+const STATUS_WIDTH = {
+  off_duty: 1.5,
+  sleeper_berth: 2.5,
+  driving: 2.5,
+  on_duty_not_driving: 2.5,
+};
+
+const VIEW = { w: 1120, h: 470 };
+const HEADER_H = 46;
+const MARGIN = { left: 170, right: 104, top: HEADER_H + 34, bottom: 92 };
 const GRID_W = VIEW.w - MARGIN.left - MARGIN.right;
 const GRID_H = VIEW.h - MARGIN.top - MARGIN.bottom;
 const ROW_H = GRID_H / ROWS.length;
-const LINE_COLOR = "#1d4ed8";
 
 const xOf = (hour) => MARGIN.left + (hour / 24) * GRID_W;
 const yOf = (row) => MARGIN.top + row * ROW_H + ROW_H / 2;
-const toHour = (hhmm) => {
-  const [h, m] = hhmm.split(":").map(Number);
-  return h + m / 60;
-};
 
 export default function LogSheet({ day, index }) {
-  const { pathD, points } = useMemo(() => buildGraph(day.segments), [day.segments]);
+  const { runs, connectors } = useMemo(() => buildGraph(day.segments), [day.segments]);
 
   const remarks = day.segments
     .filter((s) => s.status !== "off_duty" || s.location !== "Home")
     .map((s) => ({
       time: s.start_time,
-      label:
-        s.name && s.name !== s.location
-          ? `${s.name}`
-          : `${s.location}`,
-      status: s.status,
+      label: s.name && s.name !== s.location ? s.name : s.location,
     }));
 
+  const dayMiles = milesDriven(day.segments);
   const totalHours = (key) => day.totals[key] ?? 0;
+  const shortDate = day.date.replace(/^\w+\s+/, ""); // "Thu Sep 10, 2026" -> "Sep 10, 2026"
+  const headline = day.date.split(" ")[0].toLowerCase(); // "Thu" -> "thu"
 
   return (
-    <div className="log-card">
-      <div className="log-sidebar">
-        <div className="log-day">{day.date}</div>
-        <div className="log-title">DRIVER'S DAILY LOG</div>
-        <div className="log-form-noise">
-          24-HOURLY GRID — 49 CFR 395.8 · Sheet {index + 1}
-        </div>
+    <article className="sheet" aria-label={`Daily log ${day.date}`}>
+      <div className="sheet-head">
+        <h3>{`${headline}, ${shortDate}`}</h3>
+        <span className="num">{index + 1}</span>
       </div>
-      <svg className="log-svg" viewBox={`0 0 ${VIEW.w} ${VIEW.h}`} aria-label={`Daily log for ${day.date}`}>
-        {/* ---------- hour axis ---------- */}
+      <svg
+        className="sheet-svg"
+        viewBox={`0 0 ${VIEW.w} ${VIEW.h}`}
+        role="img"
+        aria-label={`Driver's daily log for ${day.date}, totaling 24 hours`}
+      >
+        {/* ---- petrol header strip: a real form's top block ---- */}
+        <rect x="0" y="0" width={VIEW.w} height={HEADER_H} fill="#043b4c" />
+        <text x="18" y="30" className="sheet-title">
+          DRIVER'S DAILY LOG
+        </text>
+        <FormField x={318} label="date" value={day.date} />
+        <FormField x={470} label="total miles" value={String(dayMiles)} mono />
+        <FormField x={606} label="carrier" value="—" />
+        <FormField x={752} label="vehicle no." value="—" />
+        <FormField x={898} label="trailer no." value="—" />
+        <text x={VIEW.w - 18} y="30" className="sheet-title" textAnchor="end">
+          24-HOUR GRID · 49 CFR 395.8
+        </text>
+
         {hourTicks()}
-        {/* ---------- duty rows ---------- */}
+
         {ROWS.map((row, i) => (
           <g key={row.key}>
             <line
@@ -69,142 +100,160 @@ export default function LogSheet({ day, index }) {
               x2={MARGIN.left + GRID_W}
               y1={MARGIN.top + i * ROW_H}
               y2={MARGIN.top + i * ROW_H}
-              stroke="#9ca3af"
-              strokeWidth="1.2"
+              stroke="#0a4e61"
+              strokeWidth="1"
             />
             <text
               x={MARGIN.left - 12}
               y={yOf(i)}
               textAnchor="end"
               dominantBaseline="middle"
-              className="log-row-label"
+              className="sheet-row-label"
             >
               {row.label}
             </text>
             <text
-              x={MARGIN.left + GRID_W + 16}
+              x={MARGIN.left + GRID_W + 18}
               y={yOf(i)}
               textAnchor="start"
               dominantBaseline="middle"
-              className="log-total"
+              className="sheet-total num"
             >
               {fmt(totalHours(row.key))}
             </text>
           </g>
         ))}
-        {/* ---------- the duty graph line ---------- */}
-        <path d={pathD} fill="none" stroke={LINE_COLOR} strokeWidth="2.5" strokeLinejoin="round" />
-        {points.map((p, i) => (
-          <circle key={i} cx={p.x} cy={p.y} r="3" fill={LINE_COLOR} />
+
+        {/* ---- checksum rule: these four numbers must add to 24 ---- */}
+        <line
+          x1={MARGIN.left + GRID_W + 10}
+          y1={MARGIN.top + GRID_H + 4}
+          x2={MARGIN.left + GRID_W + 48}
+          y2={MARGIN.top + GRID_H + 4}
+          stroke="#9fb4b8"
+          strokeWidth="1.2"
+        />
+
+        {/* ---- the stepped duty line: one colored sub-path per segment ---- */}
+        {runs.map((r, i) => (
+          <path
+            key={i}
+            d={`M ${r.x1} ${r.y} L ${r.x2} ${r.y}`}
+            fill="none"
+            stroke={STATUS_STROKE[r.status]}
+            strokeWidth={STATUS_WIDTH[r.status]}
+            strokeDasharray={STATUS_DASH[r.status]}
+            strokeLinejoin="round"
+          />
         ))}
-        {/* ---------- remarks ---------- */}
-        <text x={MARGIN.left} y={VIEW.h - 68} className="log-remarks-label">
+        <path
+          d={connectors}
+          fill="none"
+          stroke="#9fb4b8"
+          strokeWidth="1.2"
+          opacity="0.7"
+        />
+
+        {/* ---- remarks row ---- */}
+        <text x={MARGIN.left} y={VIEW.h - 64} className="sheet-remarks">
           REMARKS
         </text>
         {remarks.slice(0, 3).map((r, i) => (
-          <text
-            key={i}
-            x={MARGIN.left + 80}
-            y={VIEW.h - 68 + i * 16}
-            className="log-remarks-line"
-          >
-            {r.time} — {statusShort(r.status)} — {r.label}
+          <text key={i} x={MARGIN.left + 84} y={VIEW.h - 64 + i * 18} className="sheet-remark">
+            {r.time} — {r.label}
           </text>
         ))}
-        <line x1={MARGIN.left} y1={VIEW.h - 12} x2={VIEW.w - MARGIN.right} y2={VIEW.h - 12} stroke="#9ca3af" />
-        <line x1={MARGIN.left} y1={VIEW.h - 34} x2={VIEW.w - MARGIN.right} y2={VIEW.h - 34} stroke="#cbd5e1" />
-        <line x1={MARGIN.left} y1={VIEW.h - 56} x2={VIEW.w - MARGIN.right} y2={VIEW.h - 56} stroke="#e2e8f0" />
       </svg>
-    </div>
+    </article>
   );
+}
 
-  function hourTicks() {
-    const ticks = [];
-    for (let h = 0; h <= 24; h++) {
-      const x = xOf(h);
-      const isMidnight = h === 0 || h === 24;
-      const isThree = h % 3 === 0 && !isMidnight;
-      ticks.push(
-        <line
-          key={`h${h}`}
-          x1={x}
-          x2={x}
-          y1={MARGIN.top - 14}
-          y2={MARGIN.top + GRID_H}
-          stroke={isMidnight ? "#374151" : isThree ? "#94a3b8" : "#d1d5db"}
-          strokeWidth={isMidnight ? 1.6 : 0.9}
-          strokeDasharray={isMidnight ? null : isThree ? "3 3" : "2 4"}
-        />
-      );
-      if (h < 24) {
-        // quarter hour sub-ticks within the hour — thin, partial depth
-        for (const q of [0.25, 0.5, 0.75]) {
-          ticks.push(
-            <line
-              key={`q${h}-${q}`}
-              x1={xOf(h + q)}
-              x2={xOf(h + q)}
-              y1={MARGIN.top + GRID_H}
-              y2={MARGIN.top + GRID_H - 8}
-              stroke="#cbd5e1"
-              strokeWidth="0.8"
-            />
-          );
-        }
-      }
-      // number labels every 2 hours + endpoints
-      if (h % 2 === 0 || isMidnight) {
+function FormField({ x, label, value, mono }) {
+  return (
+    <g>
+      <text x={x} y="20" fontSize="9">
+        {label}
+      </text>
+      <text x={x} y="34" fontSize="12" fontWeight="600" className={mono ? "num" : ""}>
+        {value}
+      </text>
+    </g>
+  );
+}
+
+function hourTicks() {
+  const ticks = [];
+  for (let h = 0; h <= 24; h++) {
+    const x = xOf(h);
+    const isMidnight = h === 0 || h === 24;
+    const isThree = h % 3 === 0 && !isMidnight;
+    ticks.push(
+      <line
+        key={`h${h}`}
+        x1={x}
+        x2={x}
+        y1={MARGIN.top - 12}
+        y2={MARGIN.top + GRID_H}
+        stroke={isMidnight ? "#eaf1f1" : isThree ? "#0a4e61" : "#0a4e61"}
+        strokeWidth={isMidnight ? 1.6 : isThree ? 1 : 0.7}
+      />
+    );
+    if (h < 24 && isThree) {
+      for (const q of [0.25, 0.5, 0.75]) {
         ticks.push(
-          <text
-            key={`t${h}`}
-            x={x}
-            y={MARGIN.top - 24}
-            textAnchor="middle"
-            className="log-hour-label"
-          >
-            {h === 24 ? 0 : h}
-          </text>
+          <line
+            key={`q${h}-${q}`}
+            x1={xOf(h + q)}
+            x2={xOf(h + q)}
+            y1={MARGIN.top + GRID_H}
+            y2={MARGIN.top + GRID_H - 7}
+            stroke="#0a4e61"
+            strokeWidth="0.7"
+          />
         );
       }
     }
-    return ticks;
-  }
-
-  function buildGraph(segments) {
-    let d = "";
-    let prev = null;
-    const pts = [];
-    for (const seg of segments) {
-      const x1 = xOf(
-        seg.start_hour != null ? seg.start_hour : toHour(seg.start_time)
+    if (h % 2 === 0 || isMidnight) {
+      ticks.push(
+        <text key={`t${h}`} x={x} y={MARGIN.top - 20} textAnchor="middle" className="sheet-hour">
+          {h === 24 ? 0 : h}
+        </text>
       );
-      const x2 = xOf(
-        seg.end_hour != null ? seg.end_hour : toHour(seg.end_time)
-      );
-      const row = ROW_INDEX[seg.status] ?? 0;
-      const y = yOf(row);
-      if (prev === null) {
-        d += `M ${x1} ${y}`;
-      } else {
-        // vertical connector from previous row to this row at the change time
-        d += ` L ${x1} ${prev.y}`;
-        d += ` L ${x1} ${y}`;
-      }
-      d += ` L ${x2} ${y}`;
-      pts.push({ x: x1, y });
-      prev = { x: x2, y };
     }
-    pts.push({ x: prev?.x ?? xOf(24), y: prev?.y ?? yOf(0) });
-    return { pathD: d, points: pts };
   }
+  return ticks;
 }
 
-const fmt = (h) => h.toFixed(String(h).length > 4 ? 2 : 1) + "hr";
+function buildGraph(segments) {
+  const runs = [];
+  const connectorParts = [];
+  let prev = null;
+  for (const seg of segments) {
+    const x1 = xOf(
+      seg.start_hour != null ? seg.start_hour : toHour(seg.start_time)
+    );
+    const x2 = xOf(
+      seg.end_hour != null ? seg.end_hour : toHour(seg.end_time)
+    );
+    const row = ROW_INDEX[seg.status] ?? 0;
+    const y = yOf(row);
+    if (prev != null && prev.y !== y && x1 - prev.x > 0.01) {
+      connectorParts.push(`M ${x1} ${prev.y} L ${x1} ${y}`);
+    }
+    runs.push({ x1, x2, y, status: seg.status });
+    prev = { x: x2, y };
+  }
+  return { runs, connectors: connectorParts.join(" ") };
+}
 
-const statusShort = (s) =>
-  ({
-    off_duty: "Off duty",
-    sleeper_berth: "Sleeper berth",
-    driving: "Driving",
-    on_duty_not_driving: "On duty (not driving)",
-  }[s] ?? s);
+function milesDriven(segments) {
+  const driving = segments.filter((s) => s.status === "driving");
+  if (!driving.length) return 0;
+  return Math.max(0, Math.round(driving[driving.length - 1].distance - driving[0].distance));
+}
+
+const fmt = (h) => (Math.round(h * 10) / 10 === Math.round(h) ? h.toFixed(1) : h.toFixed(2));
+const toHour = (hhmm) => {
+  const [h, m] = hhmm.split(":").map(Number);
+  return h + m / 60;
+};

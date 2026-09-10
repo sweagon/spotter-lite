@@ -80,6 +80,19 @@ curl -X POST http://localhost:8000/api/trip/plan/ \
   -d '{"current_location":"Dallas, TX","pickup_location":"Dallas, TX","dropoff_location":"Houston, TX","current_cycle_used":30}'
 ```
 
+The plan response carries, beyond the route geometry: `route.highways`
+(best-effort `I-55`-style labels from OSRM), `usage` (the peak driving /
+duty-window / cycle hours reached anywhere in the trip — this is what
+drives the frontend's instrument cluster), stops with `stop_type`
+(`pickup|dropoff|fuel|break|rest|restart`) and `mile` markers, and
+per-day log segments with fractional-hour bounds.
+
+There's also a geocoder autocomplete endpoint the form's typeahead uses:
+
+```bash
+curl "http://localhost:8000/api/geocode/suggest/?q=Dall"
+```
+
 Run the test suite (12 tests, including a long trip that triggers a recent
 restart):
 
