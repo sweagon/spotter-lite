@@ -36,7 +36,8 @@ def plan_trip(pickup_location: dict, dropoff_location: dict,
               current_cycle_used: float,
               route_distance_miles: float, route_driving_minutes: float,
               route_geometry: list,
-              start_time: datetime = None) -> list:
+              start_time: datetime = None,
+              stats: dict = None) -> list:
     """
     main entry point. walks a timeline minute by minute and returns a flat
     list of duty-status segments covering the entire trip.
@@ -49,6 +50,11 @@ def plan_trip(pickup_location: dict, dropoff_location: dict,
 
     current_cycle_used is how many hours of the 70-hour cycle the driver has
     already burned in the prior 8 days.
+
+    if stats is provided it's filled in-place with the *peak* values reached
+    during the sim: {"driving_hours", "window_hours", "cycle_hours"}. peaks
+    matter more than the end-of-trip snapshot because they reveal tight
+    moments (e.g. driving smacking exactly 11.0 before a rest resets it).
     """
     if start_time is None:
         start_time = datetime.now().replace(second=0, microsecond=0)
@@ -75,6 +81,14 @@ def plan_trip(pickup_location: dict, dropoff_location: dict,
     segments = []
     safety_iterations = 0
 
+    # peak values reached during the trip, for the instrument cluster
+    peaks = {"driving_hours": 0.0, "window_hours": 0.0, "cycle_hours": 0.0}
+
+    def track_peaks():
+        peaks["driving_hours"] = max(peaks["driving_hours"], drive_this_shift)
+        peaks["window_hours"] = max(peaks["window_hours"], window_hours)
+        peaks["cycle_hours"] = max(peaks["cycle_hours"], cycle_used)
+
     def loc_at(d):
         """(label, lat, lon) for a point along the route."""
         return _interpolate_location(route_geometry, cum_dists, scale, d)
@@ -98,6 +112,7 @@ def plan_trip(pickup_location: dict, dropoff_location: dict,
     clock = pickup_end
     window_hours += PICKUP_MINUTES / 60.0
     cycle_used += PICKUP_MINUTES / 60.0
+    track_peaks()
 
     # ---- 2) driving loop ----
     # drive in 1-minute increments. every minute, we check whether a
@@ -151,6 +166,7 @@ def plan_trip(pickup_location: dict, dropoff_location: dict,
             # the window does NOT pause for a break: the 14hr clock keeps
             # running even though we log the break as off-duty.
             window_hours += BREAK_DURATION_MIN / 60.0
+            track_peaks()
             continue
 
         # (d) fuel stop if we've crossed a 1,000-mile mark
@@ -164,6 +180,7 @@ def plan_trip(pickup_location: dict, dropoff_location: dict,
             window_hours += FUEL_DURATION_MIN / 60.0
             cycle_used += FUEL_DURATION_MIN / 60.0
             fuel_stops_made += 1  # advance the milestone so we don't re-fire
+            track_peaks()
             continue
 
         # --- none of the above fired: we can drive one minute ---
@@ -193,12 +210,17 @@ def plan_trip(pickup_location: dict, dropoff_location: dict,
         cycle_used += drive_this_minute / 60.0
         clock = drive_end
         remaining_drive -= drive_this_minute
+        track_peaks()
 
     # ---- 3) dropoff: 1hr on-duty-not-driving ----
     dropoff_end = clock + timedelta(minutes=DROPOFF_MINUTES)
     emit("on_duty_not_driving", clock, dropoff_end,
          dropoff_location.get("name", "Dropoff"), route_distance_miles,
          lat=dropoff_location.get("lat"), lon=dropoff_location.get("lon"))
+
+    if stats is not None:
+        round2 = lambda v: round(v, 2)
+        stats.update({k: round2(v) for k, v in peaks.items()})
 
     return segments
 

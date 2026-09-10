@@ -9,6 +9,7 @@ run with:  python manage.py test tripplanner -v 2
 from datetime import datetime, timedelta
 
 from django.test import TestCase
+from rest_framework.test import APIClient
 
 from .hos_engine import (
     plan_trip,
@@ -16,6 +17,8 @@ from .hos_engine import (
     compute_daily_totals,
     merge_segments,
 )
+from .routing import _normalize_highways
+from .views import _stop_type
 
 
 class ShortTripTests(TestCase):
@@ -174,6 +177,68 @@ class CycleAndRestartTests(TestCase):
         for s in internal_onduty:
             mins = (s["end_time"] - s["start_time"]).total_seconds() / 60
             self.assertEqual(mins, 40)
+
+
+class NewApiFeaturesTests(TestCase):
+    """the fields the redesigned frontend depends on: usage peaks, highway
+    labels, stop types, and the geocode autocomplete endpoint."""
+
+    def test_usage_peaks_recorded(self):
+        stats = {}
+        plan_trip(
+            pickup_location={"name": "LA"},
+            dropoff_location={"name": "NYC"},
+            current_cycle_used=60,
+            route_distance_miles=2800,
+            route_driving_minutes=2520,
+            route_geometry=[[-118.24, 34.05], [-100.0, 36.0], [-74.0, 40.7]],
+            start_time=datetime(2026, 1, 5, 8, 0, 0),
+            stats=stats,
+        )
+        # driving hits the 11hr cap exactly before a 10hr rest resets it
+        self.assertAlmostEqual(stats["driving_hours"], 11.0, places=1)
+        # window ends a shift via either the 14-hr cap or (more often here)
+        # the 11-hr driving cap plus break/fuel time — so it must be tight,
+        # over 10, and never past 14.
+        self.assertGreater(stats["window_hours"], 10.0)
+        self.assertLessEqual(stats["window_hours"], 14.0 + 1e-6)
+        self.assertGreaterEqual(stats["cycle_hours"], 60.0)
+        self.assertLessEqual(stats["cycle_hours"], 70.0)
+
+    def test_highways_normalization(self):
+        # raw osrm step names -> display labels; junk is dropped
+        names = ["Interstate 55", "I-55", "US Highway 50", "Route 66",
+                 "", "Unknown Road", "State Highway 400"]
+        out = _normalize_highways(names)
+        self.assertEqual(out, ["I-55", "US-50", "Route 66"])
+        self.assertEqual(_normalize_highways(["", "local street", None]), [])
+
+    def test_stop_type_classification(self):
+        # synthetic segment list mimicking a real trip's non-driving spots
+        t0 = datetime(2026, 1, 5, 6, 0, 0)
+        segs = [
+            {"status": "on_duty_not_driving", "name": "LA",                 "start_time": t0,            "end_time": t0 + timedelta(hours=1)},
+            {"status": "driving",            "name": "en route",            "start_time": t0 + timedelta(hours=1), "end_time": t0 + timedelta(hours=9)},
+            {"status": "off_duty",           "name": "37.7, -112.9",        "start_time": t0 + timedelta(hours=9),  "end_time": t0 + timedelta(hours=9.5)},
+            {"status": "on_duty_not_driving","name": "Fuel stop ~1000 mi",  "start_time": t0 + timedelta(hours=20), "end_time": t0 + timedelta(hours=20.67)},
+            {"status": "sleeper_berth",      "name": "40.3, -103.3",        "start_time": t0 + timedelta(hours=30), "end_time": t0 + timedelta(hours=40)},
+            {"status": "sleeper_berth",      "name": "38.4, -112.6",        "start_time": t0 + timedelta(hours=40), "end_time": t0 + timedelta(hours=74)},
+            {"status": "on_duty_not_driving","name": "NYC",                 "start_time": t0 + timedelta(hours=90), "end_time": t0 + timedelta(hours=91)},
+        ]
+        types = [_stop_type(s, i, segs) for i, s in enumerate(segs)]
+        # only non-driving segments get classified, but we index all for clarity
+        self.assertEqual(types[0], "pickup")
+        self.assertEqual(types[2], "break")
+        self.assertEqual(types[3], "fuel")
+        self.assertEqual(types[4], "rest")
+        self.assertEqual(types[5], "restart")
+        self.assertEqual(types[6], "dropoff")
+
+    def test_suggest_requires_three_chars(self):
+        # no network call here: <3 chars returns immediately with no results
+        resp = APIClient().get("/api/geocode/suggest/?q=ab")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), [])
 
 
 class DaySlicingTests(TestCase):

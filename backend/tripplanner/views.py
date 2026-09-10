@@ -4,7 +4,7 @@ from rest_framework.response import Response
 from rest_framework import status
 
 from .serializers import TripPlanRequestSerializer
-from .routing import geocode, get_route
+from .routing import geocode, get_route, suggest
 from .hos_engine import plan_trip, slice_into_days, compute_daily_totals
 
 
@@ -13,6 +13,25 @@ class HealthView(APIView):
 
     def get(self, request):
         return Response({"status": "ok"})
+
+
+class SuggestView(APIView):
+    """
+    GET /api/geocode/suggest/?q=... - geocoder autocomplete.
+
+    feeds the form's "typeahead" so a dispatcher can tab through real place
+    names instead of gambling on spellings. frontend debounces the calls.
+    """
+
+    def get(self, request):
+        q = (request.query_params.get("q") or "").strip()
+        if len(q) < 3:
+            return Response([])
+        try:
+            return Response(suggest(q))
+        except Exception:
+            # autocomplete is a nicety; never let it break the page
+            return Response([])
 
 
 class TripPlanView(APIView):
@@ -70,6 +89,7 @@ class TripPlanView(APIView):
             )
 
         # --- run HOS simulation ---
+        stats = {}
         trip_segments = plan_trip(
             pickup_location=pickup_loc,
             dropoff_location=dropoff_loc,
@@ -78,6 +98,7 @@ class TripPlanView(APIView):
             route_driving_minutes=route["driving_minutes"],
             route_geometry=route["geometry"],
             start_time=datetime.datetime.now().replace(second=0, microsecond=0),
+            stats=stats,
         )
 
         # --- slice into per-day logs ---
@@ -114,30 +135,57 @@ class TripPlanView(APIView):
                 "distance_miles": round(route["distance_miles"], 1),
                 "driving_minutes": round(route["driving_minutes"], 1),
                 "geometry": route["geometry"],
+                "highways": route.get("highways", []),
             },
+            "usage": stats,
             "stops": stops,
             "daily_logs": daily_logs,
         })
 
 
 def _extract_stops(segments):
-    """pull out the non-driving segments as map markers."""
+    """pull out the non-driving segments as map markers + timeline rows."""
     stops = []
-    for seg in segments:
+    for i, seg in enumerate(segments):
         if seg["status"] != "driving":
             stops.append({
                 "status": seg["status"],
+                "stop_type": _stop_type(seg, i, segments),
                 "label": seg.get("name", _status_label(seg["status"])),
                 "kind": _status_label(seg["status"]),
                 "time": seg["start_time"].strftime("%H:%M"),
+                "day": seg["start_time"].strftime("%a %b %d"),
                 "location": seg["location"],
                 "lat": seg.get("lat"),
                 "lon": seg.get("lon"),
+                "mile": round(seg.get("distance") or 0.0, 1),
                 "duration_min": round(
                     (seg["end_time"] - seg["start_time"]).total_seconds() / 60
                 ),
             })
     return stops
+
+
+def _stop_type(seg, i, segments):
+    """classify a stop into pickup/dropoff/fuel/break/rest/restart — the
+    frontend keys its timeline + map dots off this, so it needs to be exact."""
+    minutes = round((seg["end_time"] - seg["start_time"]).total_seconds() / 60)
+    label = (seg.get("name") or "").lower()
+    if "fuel" in label:
+        return "fuel"
+    if seg["status"] == "off_duty":
+        return "break"
+    if seg["status"] == "sleeper_berth":
+        # 34+ hr sleep == restart, otherwise a normal 10-hr rest reset
+        return "restart" if minutes >= 34 * 60 else "rest"
+    if seg["status"] == "on_duty_not_driving":
+        # the engine always emits pickup first and dropoff last
+        if i == 0:
+            return "pickup"
+        if i == len(segments) - 1:
+            return "dropoff"
+        return "on_duty"
+    return "on_duty"
 
 
 def _status_label(status):
