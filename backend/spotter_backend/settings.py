@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 import os
+from datetime import timedelta
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -18,6 +19,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 
 # SECURITY WARNING: keep the secret key used in production secret!
+# in production this MUST come from the environment; the fallback is a
+# throwaway value that only exists so `manage.py runserver` works out of
+# the box for local dev.
 SECRET_KEY = os.environ.get(
     "DJANGO_SECRET_KEY",
     'django-insecure-p^c=dw$&dt1bn254(^@##ww99u=!y5i8psj0x)58-qkq0n2%@a',
@@ -42,6 +46,8 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'corsheaders',
     'rest_framework',
+    'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
     'tripplanner',
 ]
 
@@ -65,7 +71,14 @@ CORS_ALLOWED_ORIGINS = [
     "https://spotter-trip-planner.vercel.app",
     "https://spotter-trip-planner-git-main-morpheusout.vercel.app",
 ]
-CORS_ALLOW_ALL_ORIGINS = os.environ.get("DJANGO_CORS_ALLOW_ALL", "").lower() == "true"
+# deploy-time origins (Render sets this via env; dev keeps the list above)
+CORS_ALLOWED_ORIGINS += [
+    o.strip() for o in os.environ.get("CORS_ALLOWED_ORIGINS", "").split(",") if o.strip()
+]
+# fail closed: an org tool with protected endpoints should never ship allow-all.
+# add the real deploy origin to CORS_ALLOWED_ORIGINS instead of flipping this.
+CORS_ALLOW_ALL_ORIGINS = os.environ.get("DJANGO_CORS_ALLOW_ALL", "").lower() == "true" and DEBUG
+CORS_ALLOW_CREDENTIALS = True
 
 ROOT_URLCONF = 'spotter_backend.urls'
 
@@ -89,6 +102,8 @@ WSGI_APPLICATION = 'spotter_backend.wsgi.application'
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
+# Production uses Postgres via DATABASE_URL (Render add-on); local dev
+# falls back to sqlite so `manage.py runserver` works with zero setup.
 
 DATABASES = {
     'default': {
@@ -96,6 +111,11 @@ DATABASES = {
         'NAME': BASE_DIR / 'db.sqlite3',
     }
 }
+
+import dj_database_url  # noqa: E402
+DATABASE_URL = os.environ.get("DATABASE_URL")
+if DATABASE_URL:
+    DATABASES['default'] = dj_database_url.parse(DATABASE_URL, conn_max_age=600)
 
 
 # Password validation
@@ -127,6 +147,43 @@ TIME_ZONE = 'UTC'
 USE_I18N = True
 
 USE_TZ = True
+
+# single-company app: one fleet, one set of roles
+AUTH_USER_MODEL = 'tripplanner.User'
+
+# DRF
+# authenticated by default — public endpoints opt out with AllowAny.
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'rest_framework.authentication.SessionAuthentication',
+    ),
+    'DEFAULT_PERMISSION_CLASSES': (
+        'rest_framework.permissions.IsAuthenticated',
+    ),
+    'DEFAULT_THROTTLE_CLASSES': (
+        'rest_framework.throttling.ScopedRateThrottle',
+    ),
+    'DEFAULT_THROTTLE_RATES': {
+        # the planner + suggest both call free third-party services
+        # (OSRM, Nominatim); rate limit them per-user so one page of
+        # tabs can't burn the fleet's quota.
+        'plan': '20/hour',
+        'suggest': '60/min',
+    },
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.LimitOffsetPagination',
+    'PAGE_SIZE': 50,
+}
+
+# auth token lifetimes — access token rides in the SPA's memory, refresh
+# in localStorage. short access window limits what a lifted token exposes.
+from datetime import timedelta
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
+}
 
 
 # Static files (CSS, JavaScript, Images)

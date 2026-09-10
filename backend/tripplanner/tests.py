@@ -8,6 +8,9 @@ run with:  python manage.py test tripplanner -v 2
 
 from datetime import datetime, timedelta
 
+from unittest import mock
+
+from django.contrib.auth import get_user_model
 from django.test import TestCase
 from rest_framework.test import APIClient
 
@@ -17,8 +20,11 @@ from .hos_engine import (
     compute_daily_totals,
     merge_segments,
 )
+from .models import Alert, DailyLog, Driver, Trip, Vehicle
 from .routing import _normalize_highways
 from .views import _stop_type
+
+User = get_user_model()
 
 
 class ShortTripTests(TestCase):
@@ -261,3 +267,310 @@ class DaySlicingTests(TestCase):
         # 23:00-24:00 on day1, then 00:00-01:00 on day2
         self.assertEqual(day1_parts[0]["end_time"].hour, 0)
         self.assertEqual(day2_parts[0]["start_time"].hour, 0)
+
+class OrgAuthTests(TestCase):
+    """the org layer is built on real auth: users, tokens, role-gated access."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.driver_user = User.objects.create_user(
+            username="dave", password="pw", role="driver"
+        )
+        self.disp_user = User.objects.create_user(
+            username="dana", password="pw", role="dispatcher"
+        )
+        self.vehicle = Vehicle.objects.create(unit_no="U-1", vehicle_type="sleeper")
+        self.driver = Driver.objects.create(user=self.driver_user, vehicle=self.vehicle)
+
+    def test_login_returns_tokens_and_user_role(self):
+        resp = self.client.post("/api/auth/login/", {
+            "username": "dana", "password": "pw",
+        }, format="json")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("access", resp.data)
+        self.assertIn("refresh", resp.data)
+        self.assertEqual(resp.data["user"]["role"], "Dispatcher")
+
+    def test_login_rejects_bad_password(self):
+        resp = self.client.post("/api/auth/login/", {
+            "username": "dana", "password": "nope",
+        }, format="json")
+        self.assertEqual(resp.status_code, 401)
+
+    def test_health_with_db_ping(self):
+        resp = self.client.get("/api/health/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data["database"], "ok")
+
+    def test_me_includes_driver_profile_and_alerts(self):
+        self.client.force_authenticate(self.driver_user)
+        resp = self.client.get("/api/me/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data["role"], "Driver")
+        self.assertEqual(resp.data["driver"]["id"], self.driver.id)
+        self.assertEqual(resp.data["driver"]["vehicle_unit"], "U-1")
+
+    def test_me_requires_auth(self):
+        resp = self.client.get("/api/me/")
+        self.assertEqual(resp.status_code, 401)
+
+    def test_logout_blacklists_refresh(self):
+        login = self.client.post("/api/auth/login/", {
+            "username": "dana", "password": "pw",
+        }, format="json")
+        refresh = login.data["refresh"]
+        out = self.client.post(
+            "/api/auth/logout/",
+            {"refresh": refresh},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {login.data['access']}",
+        )
+        self.assertEqual(out.status_code, 200)
+        re_use = self.client.post("/api/auth/refresh/", {"refresh": refresh}, format="json")
+        self.assertEqual(re_use.status_code, 401)
+
+
+class OrgPermissionsTests(TestCase):
+    """role gates: drivers manage nothing but their own trips."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.alice = User.objects.create_user(username="alice", password="pw", role="driver")
+        self.bob = User.objects.create_user(username="bob", password="pw", role="driver")
+        self.disp = User.objects.create_user(username="dex", password="pw", role="dispatcher")
+        self.drive_a = Driver.objects.create(user=self.alice)
+        self.drive_b = Driver.objects.create(user=self.bob)
+        self.trip_a = Trip.objects.create(
+            created_by=self.disp,
+            driver=self.drive_a,
+            pickup_location="Memphis, TN",
+            dropoff_location="Chicago, IL",
+            current_location="Memphis, TN",
+        )
+        self.trip_b = Trip.objects.create(
+            created_by=self.disp,
+            driver=self.drive_b,
+            pickup_location="Dallas, TX",
+            dropoff_location="Houston, TX",
+            current_location="Dallas, TX",
+        )
+
+    def test_driver_sees_only_own_trips(self):
+        self.client.force_authenticate(self.alice)
+        resp = self.client.get("/api/trips/")
+        self.assertEqual(resp.status_code, 200)
+        ids = [t["id"] for t in resp.data]
+        self.assertEqual(ids, [self.trip_a.id])
+        self.assertNotIn(self.trip_b.id, ids)
+
+    def test_driver_cannot_read_other_drivers_trip(self):
+        self.client.force_authenticate(self.alice)
+        resp = self.client.get(f"/api/trips/{self.trip_b.id}/")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_driver_cannot_patch_other_trip(self):
+        self.client.force_authenticate(self.alice)
+        resp = self.client.patch(
+            f"/api/trips/{self.trip_b.id}/",
+            {"status": "en_route"},
+            format="json",
+        )
+        # writes are dispatcher-only; drivers get a hard 403 regardless of which trip
+        self.assertEqual(resp.status_code, 403)
+
+    def test_driver_cannot_list_fleet(self):
+        self.client.force_authenticate(self.alice)
+        for path in ("/api/drivers/", "/api/vehicles/", "/api/vehicles/"):
+            resp = self.client.get(path)
+            self.assertIn(resp.status_code, (401, 403))
+
+    def test_dispatcher_sees_all_trips(self):
+        self.client.force_authenticate(self.disp)
+        resp = self.client.get("/api/trips/")
+        self.assertEqual(len(resp.data), 2)
+
+    def test_status_transitions_are_guarded(self):
+        self.client.force_authenticate(self.disp)
+        # draft -> delivered is an impossible jump
+        bad = self.client.patch(
+            f"/api/trips/{self.trip_a.id}/",
+            {"status": "delivered"},
+            format="json",
+        )
+        self.assertEqual(bad.status_code, 400)
+        # and the legal path works
+        r1 = self.client.patch(f"/api/trips/{self.trip_a.id}/", {"status": "assigned"}, format="json")
+        r2 = self.client.patch(f"/api/trips/{self.trip_a.id}/", {"status": "en_route"}, format="json")
+        r3 = self.client.patch(f"/api/trips/{self.trip_a.id}/", {"status": "delivered"}, format="json")
+        self.assertEqual(r1.status_code, 200)
+        self.assertEqual(r2.status_code, 200)
+        self.assertEqual(r3.status_code, 200)
+        self.assertEqual(r3.data["status"], "delivered")
+
+
+class TripPlanPersistTests(TestCase):
+    """POST /api/trips/plan/ persists a Trip + daily logs without network."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.disp = User.objects.create_user(username="dex", password="pw", role="dispatcher")
+        self.vehicle = Vehicle.objects.create(unit_no="U-2")
+        self.driver = Driver.objects.create(user=self.disp, vehicle=self.vehicle)
+        self.driver.user = User.objects.create_user(
+            username="pat", password="pw", role="driver"
+        )
+        self.driver.save()
+
+        self.fake_payload = {
+            "route": {
+                "distance_miles": 240.0,
+                "driving_minutes": 240.0,
+                "geometry": [[-96.8, 32.8], [-95.4, 29.8]],
+                "highways": ["I-45"],
+            },
+            "usage": {"driving_hours": 4.0, "window_hours": 6.0, "cycle_hours": 4.0},
+            "stops": [],
+            "daily_logs": [
+                {
+                    "date": "Mon Jan 05, 2026",
+                    "date_iso": "2026-01-05",
+                    "segments": [],
+                    "totals": {"driving": 4.0, "off_duty": 8.0, "on_duty_not_driving": 12.0, "sleeper_berth": 0.0},
+                }
+            ],
+        }
+
+    def test_plan_creates_trip_and_logs(self):
+        self.client.force_authenticate(self.disp)
+        with mock.patch("tripplanner.views.compute_plan", return_value=self.fake_payload):
+            resp = self.client.post("/api/trips/plan/", {
+                "current_location": "Dallas, TX",
+                "pickup_location": "Dallas, TX",
+                "dropoff_location": "Houston, TX",
+                "current_cycle_used": 30,
+                "driver_id": self.driver.id,
+                "vehicle_id": self.vehicle.id,
+            }, format="json")
+        self.assertEqual(resp.status_code, 201)
+        trip_id = resp.data["trip"]["id"]
+        self.assertEqual(resp.data["trip"]["status"], "assigned")
+        trip = Trip.objects.get(pk=trip_id)
+        self.assertEqual(trip.driver_id, self.driver.id)
+        self.assertEqual(trip.cycle_used_planned, 30)
+        self.assertEqual(DailyLog.objects.filter(trip=trip).count(), 1)
+        self.assertEqual(DailyLog.objects.get(trip=trip).date.isoformat(), "2026-01-05")
+
+    def test_plan_requires_auth(self):
+        resp = self.client.post("/api/trips/plan/", {
+            "current_location": "Dallas, TX",
+            "pickup_location": "Dallas, TX",
+            "dropoff_location": "Houston, TX",
+            "current_cycle_used": 30,
+        }, format="json")
+        self.assertEqual(resp.status_code, 401)
+
+    def test_driver_plans_own_draft(self):
+        self.client.force_authenticate(self.driver.user)
+        with mock.patch("tripplanner.views.compute_plan", return_value=self.fake_payload):
+            resp = self.client.post("/api/trips/plan/", {
+                "current_location": "Dallas, TX",
+                "pickup_location": "Dallas, TX",
+                "dropoff_location": "Houston, TX",
+                "current_cycle_used": 12,
+            }, format="json")
+        self.assertEqual(resp.status_code, 201)
+        trip = Trip.objects.get(pk=resp.data["trip"]["id"])
+        self.assertEqual(trip.status, "draft")  # dispatcher must approve
+        self.assertEqual(trip.driver_id, self.driver.id)
+        self.assertEqual(trip.vehicle_id, self.vehicle.id)
+
+    def test_driver_cannot_assign_another_vehicle(self):
+        other = Vehicle.objects.create(unit_no="U-9")
+        self.client.force_authenticate(self.driver.user)
+        with mock.patch("tripplanner.views.compute_plan", return_value=self.fake_payload):
+            resp = self.client.post("/api/trips/plan/", {
+                "current_location": "Dallas, TX",
+                "pickup_location": "Dallas, TX",
+                "dropoff_location": "Houston, TX",
+                "current_cycle_used": 12,
+                "vehicle_id": other.id,
+            }, format="json")
+        self.assertEqual(resp.status_code, 403)
+
+
+class WatchdogTests(TestCase):
+    """the HOS tracker agent: plans become alerts at the right thresholds."""
+
+    def setUp(self):
+        self.driver_user = User.objects.create_user(
+            username="ron", password="pw", role="driver"
+        )
+        self.driver = Driver.objects.create(
+            user=self.driver_user, cycle_used=60.0
+        )
+        self.disp = User.objects.create_user(
+            username="dex", password="pw", role="dispatcher"
+        )
+
+    def _trip(self, status="en_route", driving=12.0, window=15.0, cycle=76.0):
+        return Trip.objects.create(
+            created_by=self.disp,
+            driver=self.driver,
+            current_location="A",
+            pickup_location="A",
+            dropoff_location="B",
+            status=status,
+            usage={
+                "driving_hours": driving,
+                "window_hours": window,
+                "cycle_hours": cycle,
+            },
+            cycle_used_planned=60.0,
+            distance_miles=500,
+            driving_minutes=600,
+        )
+
+    def test_breached_plan_raises_alerts(self):
+        self._trip()
+        from django.core.management import call_command
+        call_command("watch_hos", verbosity=0)
+        rules = set(Alert.objects.filter(driver=self.driver).values_list("rule", flat=True))
+        self.assertIn("drive_11", rules)
+        self.assertIn("duty_14", rules)
+        self.assertIn("cycle_70", rules)
+
+    def test_idempotent_across_runs(self):
+        # breach trip fires 4 rules (drive_11, duty_14, cycle_70, over_hours)
+        self._trip()
+        from django.core.management import call_command
+        call_command("watch_hos", verbosity=0)
+        call_command("watch_hos", verbosity=0)
+        self.assertEqual(Alert.objects.filter(driver=self.driver).count(), 4)
+
+    def test_clean_driver_no_alerts(self):
+        from django.core.management import call_command
+        call_command("watch_hos", verbosity=0)
+        self.assertEqual(Alert.objects.filter(driver=self.driver).count(), 0)
+
+    def test_delivered_trip_not_flagged(self):
+        # a finished load is history, not a live projection
+        self._trip(status="delivered")
+        from django.core.management import call_command
+        call_command("watch_hos", verbosity=0)
+        self.assertEqual(Alert.objects.filter(driver=self.driver).count(), 0)
+
+    def test_tripevent_audit_recorded(self):
+        self.client = APIClient()
+        self.client.force_authenticate(self.disp)
+        trip = Trip.objects.create(
+            created_by=self.disp,
+            driver=self.driver,
+            current_location="A",
+            pickup_location="A",
+            dropoff_location="B",
+        )
+        resp = self.client.patch(f"/api/trips/{trip.id}/", {"status": "assigned"}, format="json")
+        self.assertEqual(resp.status_code, 200)
+        event = trip.events.first()
+        self.assertEqual(event.to_status, "assigned")
+        self.assertEqual(event.user_id, self.disp.id)
