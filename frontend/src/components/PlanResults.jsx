@@ -43,7 +43,11 @@ export default function PlanResults({ result, pickup, dropoff }) {
             className="sheet-stagger"
             style={{ animationDelay: `${i * 150}ms` }}
           >
-            <LogSheet day={day} index={i} />
+            <LogSheet
+              day={day}
+              index={i}
+              cycleUsed={result.usage?.cycle_hours ?? result.cycle_used}
+            />
           </div>
         ))}
       </div>

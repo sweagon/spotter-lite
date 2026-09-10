@@ -1,34 +1,48 @@
 import { useMemo } from "react";
+import {
+  STATUS_ROWS,
+  MARGIN,
+  VIEW,
+  GRID_W,
+  ROW_H,
+  xOf,
+  centerY,
+  rowTop,
+  gridBottom,
+  HOUR_MARKS,
+  quarterTicks,
+  normalizeSegments,
+  buildDutyLine,
+  buildRemarks,
+  sumTotals,
+  isAligned,
+  recap,
+} from "./logSheetSpec";
 
 /**
- * FMCSA-style daily driver's log, as SVG. geometry follows the real 395.8
- * form: 4 duty rows, midnight-to-midnight hour axis with quarter-hour
- * sub-ticks, a stepped duty line, totals column, remarks row.
+ * FMCSA-style daily driver's log, as SVG. geometry faithful to the 395.8
+ * form per the reference spec (see scripts/logsheet.spec.test.js which
+ * asserts the same rules):
+ *   - 4 fixed rows over a 0-1440 minute axis
+ *   - 25 full-height hour lines, labeled midnight..noon..midnight
+ *   - 3 quarter ticks per hour per row; rows 1-2 hang down, rows 3-4 rise
+ *     up, the :30 mark longer than :15/:45
+ *   - a single stepped duty line, connectors colored toward the new status
+ *   - a remarks lane ticked + labeled at every change x-position
+ *   - totals column with ruled cells and a programmatic 24.00 checksum
  *
- * two product choices on top of the faithful grid:
- *   - the duty line is color-coded BY STATUS (coral driving / teal on-duty /
- *     mint sleeper / ink off-duty) AND given a distinct dash pattern per
- *     status, so the compliance doc stays readable for colorblind viewers.
- *   - totals are set in mono with a checksum rule underneath — the sheet
- *     must sum to 24 and it should visibly look like it.
+ * product choices on top of the faithful grid: per-status colors + dash
+ * patterns for colorblind readability, and a compact shipping/recap strip.
  */
 
-const ROWS = [
-  { key: "off_duty", label: "OFF DUTY" },
-  { key: "sleeper_berth", label: "SLEEPER BERTH" },
-  { key: "driving", label: "DRIVING" },
-  { key: "on_duty_not_driving", label: "ON DUTY (NOT DRIVING)" },
-];
-const ROW_INDEX = Object.fromEntries(ROWS.map((r, i) => [r.key, i]));
-
 const STATUS_STROKE = {
-  off_duty: "#5c747c", // ink-400, dark enough to read against the paper
+  off_duty: "#5c747c", // ink-400
   sleeper_berth: "#008080",
   driving: "#f84960",
   on_duty_not_driving: "#006b6b",
 };
 const STATUS_DASH = {
-  off_duty: null, // thin, solid
+  off_duty: null,
   sleeper_berth: "2 5", // dotted
   driving: null, // solid
   on_duty_not_driving: "6 4", // dashed
@@ -40,30 +54,24 @@ const STATUS_WIDTH = {
   on_duty_not_driving: 2.5,
 };
 
-const VIEW = { w: 1120, h: 470 };
-const HEADER_H = 46;
-const MARGIN = { left: 170, right: 104, top: HEADER_H + 34, bottom: 92 };
-const GRID_W = VIEW.w - MARGIN.left - MARGIN.right;
-const GRID_H = VIEW.h - MARGIN.top - MARGIN.bottom;
-const ROW_H = GRID_H / ROWS.length;
+const TOTALS_X = MARGIN.left + GRID_W + 12;
+const TOTALS_W = 62;
+const REMARK_DROP = 11;
 
-const xOf = (hour) => MARGIN.left + (hour / 24) * GRID_W;
-const yOf = (row) => MARGIN.top + row * ROW_H + ROW_H / 2;
+export default function LogSheet({ day, index, cycleUsed }) {
+  const segs = useMemo(() => normalizeSegments(day.segments), [day.segments]);
+  const { runs, transitions } = useMemo(() => buildDutyLine(segs), [segs]);
+  const remarks = useMemo(() => buildRemarks(segs), [segs]);
 
-export default function LogSheet({ day, index }) {
-  const { runs, connectors } = useMemo(() => buildGraph(day.segments), [day.segments]);
-
-  const remarks = day.segments
-    .filter((s) => s.status !== "off_duty" || s.location !== "Home")
-    .map((s) => ({
-      time: s.start_time,
-      label: s.name && s.name !== s.location ? s.name : s.location,
-    }));
-
-  const dayMiles = milesDriven(day.segments);
-  const totalHours = (key) => day.totals[key] ?? 0;
-  const shortDate = day.date.replace(/^\w+\s+/, ""); // "Thu Sep 10, 2026" -> "Sep 10, 2026"
-  const headline = day.date.split(" ")[0].toLowerCase(); // "Thu" -> "thu"
+  const dayMiles = milesDriven(segs);
+  const totals = Object.fromEntries(
+    STATUS_ROWS.map((r) => [r.key, day.totals?.[r.key] ?? 0])
+  );
+  const sum = sumTotals(totals);
+  const aligned = isAligned(totals);
+  const rc = recap(totals, cycleUsed ?? (day.cycle_used ?? null));
+  const shortDate = day.date.replace(/^\w+\s+/, "");
+  const headline = day.date.split(" ")[0].toLowerCase();
 
   return (
     <article className="sheet" aria-label={`Daily log ${day.date}`}>
@@ -77,8 +85,8 @@ export default function LogSheet({ day, index }) {
         role="img"
         aria-label={`Driver's daily log for ${day.date}, totaling 24 hours`}
       >
-        {/* ---- petrol header strip: a real form's top block ---- */}
-        <rect x="0" y="0" width={VIEW.w} height={HEADER_H} fill="#043b4c" />
+        {/* ---- zone 1 (simplified): identity header strip ---- */}
+        <rect x="0" y="0" width={VIEW.w} height={46} fill="#043b4c" />
         <text x="18" y="30" className="sheet-title">
           DRIVER'S DAILY LOG
         </text>
@@ -91,50 +99,117 @@ export default function LogSheet({ day, index }) {
           24-HOUR GRID · 49 CFR 395.8
         </text>
 
-        {hourTicks()}
+        {/* ---- zone 2: the grid ---- */}
+        <line
+          x1={MARGIN.left - 8}
+          y1={rowTop(0)}
+          x2={MARGIN.left + GRID_W}
+          y2={rowTop(0)}
+          stroke="#0a3d4e"
+          strokeWidth="2"
+        />
 
-        {ROWS.map((row, i) => (
+        {/* 25 full-height hour lines, all heaviest weight */}
+        {HOUR_MARKS.map(({ hour, minutes, label }) => (
+          <g key={hour}>
+            <line
+              x1={xOf(minutes)}
+              x2={xOf(minutes)}
+              y1={rowTop(0)}
+              y2={gridBottom()}
+              stroke="#0a4e61"
+              strokeWidth="1.5"
+            />
+            <text x={xOf(minutes)} y={MARGIN.top - 20} textAnchor="middle" className="sheet-hour">
+              {label}
+            </text>
+          </g>
+        ))}
+
+        {/* 3 quarter ticks per hour per row, alternating direction */}
+        {quarterTicks().map((tck, i) => (
+          <line
+            key={i}
+            x1={tck.x}
+            x2={tck.x}
+            y1={tck.y1}
+            y2={tck.y2}
+            stroke="#0a4e61"
+            strokeWidth={tck.long ? 1 : 0.75}
+          />
+        ))}
+
+        {/* row boundary lines + labels + ruled totals cells */}
+        {STATUS_ROWS.map((row, i) => (
           <g key={row.key}>
             <line
-              x1={MARGIN.left}
+              x1={MARGIN.left - 8}
               x2={MARGIN.left + GRID_W}
-              y1={MARGIN.top + i * ROW_H}
-              y2={MARGIN.top + i * ROW_H}
+              y1={rowTop(i)}
+              y2={rowTop(i)}
               stroke="#0a4e61"
               strokeWidth="1"
             />
             <text
               x={MARGIN.left - 12}
-              y={yOf(i)}
+              y={centerY(i)}
               textAnchor="end"
               dominantBaseline="middle"
               className="sheet-row-label"
             >
               {row.label}
             </text>
+
+            {/* totals cell: box + rule to print the number on */}
+            <rect
+              x={TOTALS_X}
+              y={rowTop(i) + 2}
+              width={TOTALS_W}
+              height={ROW_H - 4}
+              fill="#fbfcfc"
+              stroke="#9fb4b8"
+              strokeWidth="0.8"
+            />
+            <line
+              x1={TOTALS_X + 6}
+              x2={TOTALS_X + TOTALS_W - 6}
+              y1={centerY(i) + 5}
+              y2={centerY(i) + 5}
+              stroke="#9fb4b8"
+              strokeWidth="1"
+            />
             <text
-              x={MARGIN.left + GRID_W + 18}
-              y={yOf(i)}
-              textAnchor="start"
-              dominantBaseline="middle"
+              x={TOTALS_X + TOTALS_W / 2}
+              y={centerY(i) - 1}
+              textAnchor="middle"
               className="sheet-total num"
             >
-              {fmt(totalHours(row.key))}
+              {fmt(totals[row.key])}
             </text>
           </g>
         ))}
-
-        {/* ---- checksum rule: these four numbers must add to 24 ---- */}
         <line
-          x1={MARGIN.left + GRID_W + 10}
-          y1={MARGIN.top + GRID_H + 4}
-          x2={MARGIN.left + GRID_W + 48}
-          y2={MARGIN.top + GRID_H + 4}
-          stroke="#9fb4b8"
-          strokeWidth="1.2"
+          x1={MARGIN.left - 8}
+          x2={MARGIN.left + GRID_W}
+          y1={gridBottom()}
+          y2={gridBottom()}
+          stroke="#0a4e61"
+          strokeWidth="1"
         />
 
-        {/* ---- the stepped duty line: one colored sub-path per segment ---- */}
+        {/* ---- the stepped duty line (step function, never diagonal) ---- */}
+        {transitions.map((t, i) => (
+          <line
+            key={`c${i}`}
+            x1={t.x}
+            x2={t.x}
+            y1={t.yFrom}
+            y2={t.yTo}
+            stroke={STATUS_STROKE[t.into]}
+            strokeWidth="1.6"
+            opacity="0.85"
+          />
+        ))}
         {runs.map((r, i) => (
           <path
             key={i}
@@ -144,25 +219,65 @@ export default function LogSheet({ day, index }) {
             strokeWidth={STATUS_WIDTH[r.status]}
             strokeDasharray={STATUS_DASH[r.status]}
             strokeLinejoin="round"
+            strokeLinecap="round"
           />
         ))}
-        <path
-          d={connectors}
-          fill="none"
-          stroke="#9fb4b8"
-          strokeWidth="1.2"
-          opacity="0.7"
-        />
 
-        {/* ---- remarks row ---- */}
-        <text x={MARGIN.left} y={VIEW.h - 64} className="sheet-remarks">
+        {/* ---- zone 3: remarks lane, ticked at each change x ---- */}
+        <text x={MARGIN.left} y={gridBottom() + 26} className="sheet-remarks">
           REMARKS
         </text>
-        {remarks.slice(0, 3).map((r, i) => (
-          <text key={i} x={MARGIN.left + 84} y={VIEW.h - 64 + i * 18} className="sheet-remark">
-            {r.time} — {r.label}
-          </text>
+        {remarks.map((r, i) => (
+          <g key={i}>
+            <line
+              x1={r.x}
+              x2={r.x}
+              y1={gridBottom()}
+              y2={gridBottom() + REMARK_DROP}
+              stroke="#64748b"
+              strokeWidth="1"
+            />
+            <text
+              x={r.x}
+              y={gridBottom() + REMARK_DROP + 12 + (i % 2 ? 8 : 0)}
+              transform={`rotate(-40 ${r.x} ${gridBottom() + REMARK_DROP + 6})`}
+              className="sheet-remark"
+            >
+              {r.label}
+            </text>
+          </g>
         ))}
+
+        {/* ---- zones 4-5 (simplified): shipping + recap strip ---- */}
+        <g>
+          <line
+            x1={MARGIN.left - 8}
+            y1={VIEW.h - 58}
+            x2={VIEW.w - 14}
+            y2={VIEW.h - 58}
+            stroke="#9fb4b8"
+            strokeWidth="0.8"
+          />
+          <text x={MARGIN.left} y={VIEW.h - 36} className="sheet-recap txt">
+            SHIPPING DOC NO.{fill()}_ SHIPPER/COMMODITY{fill()}
+          </text>
+          <text x={VIEW.w / 2 - 30} y={VIEW.h - 36} className="sheet-recap txt" textAnchor="middle">
+            ON DUTY TODAY {fmt(rc.onDutyToday)} · OFF DUTY {fmt(rc.offDutyToday)} · SLEEPER {fmt(rc.sleeperToday)} · DRIVING {fmt(rc.drivingToday)}
+          </text>
+          {rc.availableTomorrow != null && (
+            <text x={VIEW.w - 14} y={VIEW.h - 36} className="sheet-recap txt" textAnchor="end">
+              70HR CYCLE: {fmt(rc.cycleUsed)} USED · {fmt(rc.availableTomorrow)} AVAIL
+            </text>
+          )}
+          <text
+            x={VIEW.w - 14}
+            y={VIEW.h - 20}
+            textAnchor="end"
+            className={`sheet-chip ${aligned ? "ok" : "bad"}`}
+          >
+            {aligned ? "✓ 24.00" : `Δ ${fmt(Math.abs(sum - 24))} — must equal 24.00`}
+          </text>
+        </g>
       </svg>
     </article>
   );
@@ -181,79 +296,16 @@ function FormField({ x, label, value, mono }) {
   );
 }
 
-function hourTicks() {
-  const ticks = [];
-  for (let h = 0; h <= 24; h++) {
-    const x = xOf(h);
-    const isMidnight = h === 0 || h === 24;
-    const isThree = h % 3 === 0 && !isMidnight;
-    ticks.push(
-      <line
-        key={`h${h}`}
-        x1={x}
-        x2={x}
-        y1={MARGIN.top - 12}
-        y2={MARGIN.top + GRID_H}
-        stroke={isMidnight ? "#eaf1f1" : isThree ? "#0a4e61" : "#0a4e61"}
-        strokeWidth={isMidnight ? 1.6 : isThree ? 1 : 0.7}
-      />
-    );
-    if (h < 24 && isThree) {
-      for (const q of [0.25, 0.5, 0.75]) {
-        ticks.push(
-          <line
-            key={`q${h}-${q}`}
-            x1={xOf(h + q)}
-            x2={xOf(h + q)}
-            y1={MARGIN.top + GRID_H}
-            y2={MARGIN.top + GRID_H - 7}
-            stroke="#0a4e61"
-            strokeWidth="0.7"
-          />
-        );
-      }
-    }
-    if (h % 2 === 0 || isMidnight) {
-      ticks.push(
-        <text key={`t${h}`} x={x} y={MARGIN.top - 20} textAnchor="middle" className="sheet-hour">
-          {h === 24 ? 0 : h}
-        </text>
-      );
-    }
-  }
-  return ticks;
-}
-
-function buildGraph(segments) {
-  const runs = [];
-  const connectorParts = [];
-  let prev = null;
-  for (const seg of segments) {
-    const x1 = xOf(
-      seg.start_hour != null ? seg.start_hour : toHour(seg.start_time)
-    );
-    const x2 = xOf(
-      seg.end_hour != null ? seg.end_hour : toHour(seg.end_time)
-    );
-    const row = ROW_INDEX[seg.status] ?? 0;
-    const y = yOf(row);
-    if (prev != null && prev.y !== y && x1 - prev.x > 0.01) {
-      connectorParts.push(`M ${x1} ${prev.y} L ${x1} ${y}`);
-    }
-    runs.push({ x1, x2, y, status: seg.status });
-    prev = { x: x2, y };
-  }
-  return { runs, connectors: connectorParts.join(" ") };
-}
-
 function milesDriven(segments) {
   const driving = segments.filter((s) => s.status === "driving");
   if (!driving.length) return 0;
-  return Math.max(0, Math.round(driving[driving.length - 1].distance - driving[0].distance));
+  return Math.max(
+    0,
+    Math.round(driving[driving.length - 1].distance - driving[0].distance)
+  );
 }
 
+/** blank underline for print-style form fields. */
+const fill = () => " ____________";
+
 const fmt = (h) => (Math.round(h * 10) / 10 === Math.round(h) ? h.toFixed(1) : h.toFixed(2));
-const toHour = (hhmm) => {
-  const [h, m] = hhmm.split(":").map(Number);
-  return h + m / 60;
-};
