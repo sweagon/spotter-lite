@@ -70,8 +70,9 @@ export default function LogSheet({ day, index, cycleUsed }) {
   const sum = sumTotals(totals);
   const aligned = isAligned(totals);
   const rc = recap(totals, cycleUsed ?? (day.cycle_used ?? null));
-  const shortDate = day.date.replace(/^\w+\s+/, "");
-  const headline = day.date.split(" ")[0].toLowerCase();
+  const pretty = prettyDate(day.date); // "Thu Sep 10, 2026" for both ISO + pretty input
+  const headline = pretty.split(" ")[0].toLowerCase().replace(/[,]/g, "");
+  const shortDate = pretty.split(" ").slice(1).join(" ");
 
   return (
     <article className="sheet" aria-label={`Daily log ${day.date}`}>
@@ -90,7 +91,7 @@ export default function LogSheet({ day, index, cycleUsed }) {
         <text x="18" y="30" className="sheet-title">
           DRIVER'S DAILY LOG
         </text>
-        <FormField x={318} label="date" value={day.date} />
+        <FormField x={318} label="date" value={pretty} />
         <FormField x={470} label="total miles" value={String(dayMiles)} mono />
         <FormField x={606} label="carrier" value="—" />
         <FormField x={752} label="vehicle no." value="—" />
@@ -286,10 +287,10 @@ export default function LogSheet({ day, index, cycleUsed }) {
 function FormField({ x, label, value, mono }) {
   return (
     <g>
-      <text x={x} y="20" fontSize="9">
+      <text x={x} y="20" className="sheet-field-label">
         {label}
       </text>
-      <text x={x} y="34" fontSize="12" fontWeight="600" className={mono ? "num" : ""}>
+      <text x={x} y="35" className={`sheet-field-value ${mono ? "num" : ""}`}>
         {value}
       </text>
     </g>
@@ -307,5 +308,21 @@ function milesDriven(segments) {
 
 /** blank underline for print-style form fields. */
 const fill = () => " ____________";
+
+/** accept "2026-09-10" or "Thu Sep 10, 2026", always render "Thu, Sep 10, 2026". */
+function prettyDate(d) {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+    const dt = new Date(`${d}T00:00:00`);
+    if (!Number.isNaN(dt.getTime())) {
+      return dt.toLocaleDateString("en-US", {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      });
+    }
+  }
+  return d;
+}
 
 const fmt = (h) => (Math.round(h * 10) / 10 === Math.round(h) ? h.toFixed(1) : h.toFixed(2));

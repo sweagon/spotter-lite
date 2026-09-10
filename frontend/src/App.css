@@ -48,8 +48,6 @@
   display: grid;
   grid-template-columns: 360px 1fr;
   gap: 0;
-  max-width: 1440px;
-  margin: 0 auto;
   align-items: start;
 }
 
@@ -537,28 +535,42 @@
 }
 
 .sheet-title {
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 700;
   fill: #fff;
   letter-spacing: 0.05em;
+}
+
+.sheet-field-label {
+  font-size: 10px;
+  font-weight: 600;
+  fill: rgba(255, 255, 255, 0.78);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.sheet-field-value {
+  font-size: 13.5px;
+  font-weight: 600;
+  fill: #ffffff;
 }
 
 .sheet-row-label {
   font-size: 10px;
   font-weight: 600;
-  fill: #475569;
+  fill: #334155;
   letter-spacing: 0.02em;
 }
 
 .sheet-total {
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 600;
   fill: #0f172a;
 }
 
 .sheet-hour {
-  font-size: 9px;
-  fill: #475569;
+  font-size: 10px;
+  fill: #334155;
 }
 
 .sheet-remarks {
@@ -569,12 +581,12 @@
 }
 
 .sheet-remark {
-  font-size: 9px;
-  fill: #475569;
+  font-size: 10px;
+  fill: #334155;
 }
 
 .sheet-recap {
-  font-size: 9px;
+  font-size: 10px;
   letter-spacing: 0.02em;
 }
 
