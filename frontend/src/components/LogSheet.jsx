@@ -61,7 +61,14 @@ const REMARK_DROP = 11;
 export default function LogSheet({ day, index, cycleUsed }) {
   const segs = useMemo(() => normalizeSegments(day.segments), [day.segments]);
   const { runs, transitions } = useMemo(() => buildDutyLine(segs), [segs]);
-  const remarks = useMemo(() => buildRemarks(segs), [segs]);
+  const remarks = useMemo(
+    () =>
+      buildRemarks(segs)
+        .map((r) => ({ x: r.x, label: clipLabel(r.label) }))
+        .filter((r) => r.label != null)
+        .filter((r, i, all) => i === 0 || all[i - 1].x !== r.x || all[i - 1].label !== r.label),
+    [segs]
+  );
 
   const dayMiles = milesDriven(segs);
   const totals = Object.fromEntries(
@@ -92,11 +99,11 @@ export default function LogSheet({ day, index, cycleUsed }) {
           DRIVER'S DAILY LOG
         </text>
         <FormField x={318} label="date" value={pretty} />
-        <FormField x={470} label="total miles" value={String(dayMiles)} mono />
-        <FormField x={606} label="carrier" value="—" />
-        <FormField x={752} label="vehicle no." value="—" />
-        <FormField x={898} label="trailer no." value="—" />
-        <text x={VIEW.w - 18} y="30" className="sheet-title" textAnchor="end">
+        <FormField x={452} label="total miles" value={String(dayMiles)} mono />
+        <FormField x={598} label="carrier" value="—" />
+        <FormField x={744} label="vehicle no." value="—" />
+        <FormField x={810} label="trailer no." value="—" />
+        <text x={VIEW.w - 20} y="30" className="sheet-title sheet-title--cram" textAnchor="end">
           24-HOUR GRID · 49 CFR 395.8
         </text>
 
@@ -239,9 +246,9 @@ export default function LogSheet({ day, index, cycleUsed }) {
               strokeWidth="1"
             />
             <text
-              x={r.x}
-              y={gridBottom() + REMARK_DROP + 12 + (i % 2 ? 8 : 0)}
-              transform={`rotate(-40 ${r.x} ${gridBottom() + REMARK_DROP + 6})`}
+              x={Math.max(r.x, MARGIN.left + 66)}
+              y={gridBottom() + REMARK_DROP + 12 + (i % 2 ? 10 : 0)}
+              transform={`rotate(-40 ${Math.max(r.x, MARGIN.left + 66)} ${gridBottom() + REMARK_DROP + 6})`}
               className="sheet-remark"
             >
               {r.label}
@@ -260,19 +267,19 @@ export default function LogSheet({ day, index, cycleUsed }) {
             strokeWidth="0.8"
           />
           <text x={MARGIN.left} y={VIEW.h - 36} className="sheet-recap txt">
-            SHIPPING DOC NO.{fill()}_ SHIPPER/COMMODITY{fill()}
+            SHIPPING DOC NO.{fill()} SHIPPER/COMMODITY{fill()}
           </text>
-          <text x={VIEW.w / 2 - 30} y={VIEW.h - 36} className="sheet-recap txt" textAnchor="middle">
+          <text x={MARGIN.left} y={VIEW.h - 20} className="sheet-recap txt">
             ON DUTY TODAY {fmt(rc.onDutyToday)} · OFF DUTY {fmt(rc.offDutyToday)} · SLEEPER {fmt(rc.sleeperToday)} · DRIVING {fmt(rc.drivingToday)}
           </text>
           {rc.availableTomorrow != null && (
-            <text x={VIEW.w - 14} y={VIEW.h - 36} className="sheet-recap txt" textAnchor="end">
+            <text x={VIEW.w - 14} y={VIEW.h - 20} className="sheet-recap txt" textAnchor="end">
               70HR CYCLE: {fmt(rc.cycleUsed)} USED · {fmt(rc.availableTomorrow)} AVAIL
             </text>
           )}
           <text
             x={VIEW.w - 14}
-            y={VIEW.h - 20}
+            y={VIEW.h - 36}
             textAnchor="end"
             className={`sheet-chip ${aligned ? "ok" : "bad"}`}
           >
@@ -308,6 +315,13 @@ function milesDriven(segments) {
 
 /** blank underline for print-style form fields. */
 const fill = () => " ____________";
+
+/** drop noise labels ("en route" fallbacks) and clip over-long place names. */
+function clipLabel(s) {
+  const t = (s ?? "").trim();
+  if (!t || /^en route$/i.test(t)) return null;
+  return t.length > 22 ? `${t.slice(0, 22)}…` : t;
+}
 
 /** accept "2026-09-10" or "Thu Sep 10, 2026", always render "Thu, Sep 10, 2026". */
 function prettyDate(d) {

@@ -518,8 +518,8 @@
 
 .sheet-head h3 {
   font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--ink-50);
+  font-weight: 700;
+  color: #0f172a;
   text-transform: capitalize;
 }
 
@@ -541,16 +541,21 @@
   letter-spacing: 0.05em;
 }
 
+.sheet-title--cram {
+  font-size: 11px;
+  letter-spacing: 0.03em;
+}
+
 .sheet-field-label {
-  font-size: 10px;
+  font-size: 9.5px;
   font-weight: 600;
   fill: rgba(255, 255, 255, 0.78);
-  letter-spacing: 0.07em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
 .sheet-field-value {
-  font-size: 13.5px;
+  font-size: 12.5px;
   font-weight: 600;
   fill: #ffffff;
 }
@@ -581,12 +586,12 @@
 }
 
 .sheet-remark {
-  font-size: 10px;
-  fill: #334155;
+  font-size: 9px;
+  fill: #475569;
 }
 
 .sheet-recap {
-  font-size: 10px;
+  font-size: 9.5px;
   letter-spacing: 0.02em;
 }
 
