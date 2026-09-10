@@ -1,9 +1,12 @@
-# Spotter — trip planner with FMCSA hours-of-service logs
+# Spotter — fleet trip planner with FMCSA hours-of-service logs
 
-A full-stack trip planning app for trucking. Enter the driver's current
+A company-ready trip planning app for trucking. Enter the driver's current
 location, pickup, dropoff, and how much of the 70-hour / 8-day cycle they've
-already used — Spotter routes the drive and generates the daily driver's
-logs (49 CFR Part 395 format) for the whole trip.
+already used — Spotter routes the drive, simulates the trip against the
+federal hours-of-service rules, and generates the daily driver's logs
+(49 CFR Part 395 format) for the whole trip, then runs the load through a
+driver/dispatcher lifecycle with a watchdog that flags drivers approaching
+or breaching their hours.
 
 Live demo: **TODO-frontend-url** · API: **TODO-backend-url**
 
@@ -11,22 +14,36 @@ Live demo: **TODO-frontend-url** · API: **TODO-backend-url**
 
 ## What it does
 
+**Org layer** (new)
+- Role-based sign-in: **driver**, **dispatcher**, **admin**.
+- Drivers: their own trips, live HOS position (cycle used, truck), open
+  watchdog flags, "plan my trip" → persisted load, chargeable log sheets.
+- Dispatchers: the **load board** (create / assign / advance statuses),
+  fleet roster, and the **watchdog** alert queue.
+- Trips persist to Postgres with per-day logs; every status change is
+  **audited per user** (`TripEvent`).
+- The **HOS watchdog** (`manage.py watch_hos`, run hourly on Render): a
+  planning guardrail that projects each driver's position from their declared
+  cycle + latest live load and raises alerts for 11 / 14 / 70 / over-hours.
+- Django admin (`/admin/`) for users, drivers, vehicles, trips, alerts, events.
+
+**Planner core** (unchanged strength)
 1. **Geocodes** the three locations (Nominatim / OpenStreetMap).
 2. **Routes** pickup → dropoff (OSRM public demo server) and returns distance,
    driving time, and the full shape of the route.
 3. **Simulates the trip** minute-by-minute against the FMCSA rules and returns
    per-day log data that the frontend draws as daily graph-grid log sheets.
 4. **Shows it all on one page**: the route on a Leaflet map with markers for
-   every stop, a stop list, summary stats, and one SVG log sheet per day.
-
-There's no database, no accounts, no persistence. One POST, one response.
+   every stop, an instrument cluster (peak driving / window / cycle), a stop
+   timeline, and one SVG log sheet per day.
+5. A stateless public calculator stays live at `/explore` (no login).
 
 ### HOS rules implemented (the `11/14/8/70/34` rules)
 
 | Rule | Notes |
 | --- | --- |
 | **11-hour driving limit** | after 11 cumulative driving hours, a 10-hour rest is required |
-| **14-hour duty window** | from the start of the shift, the driver must be done within 14 hours; the window keeps ticking through breaks (does not “pause”) |
+| **14-hour duty window** | from the start of the shift, the driver must be done within 14 hours; the window keeps ticking through breaks (does not "pause") |
 | **30-minute break** | required after 8 cumulative hours of driving; logged off-duty but still counts against the 14-hour window |
 | **70-hour / 8-day cycle** | if the plan would push the driver over 70 used hours, a **34-hour restart** is inserted and the cycle resets to 0 |
 | **Fuel stops** | forced every ~1,000 miles, logged as 40 minutes on-duty (not driving) |
@@ -34,7 +51,7 @@ There's no database, no accounts, no persistence. One POST, one response.
 
 Deliberately __not__ implemented: sleeper-berth splitting, the 16-hour
 short-haul exemption, adverse-driving-condition +2 hours, and the 60/7
-alternative window. The scope of this task only asks for the rules above.
+alternative window.
 
 ## How the HOS engine works
 
@@ -51,14 +68,9 @@ priority order:
 4. have we driven past the next 1,000-mile mark? → fuel stop (once)
 
 Rest and restarts are logged as **sleeper berth** (the FMCSA-valid way to
-record a non-driving rest period in that row of the grid). The trip plan then
-gets sliced into calendar days; each day is padded with off-duty time
-(midnight → first activity, last activity → midnight) so every row on every log
-sheet sums to 24 hours — which is what the grid shows, and what inspectors read.
-
-The minute-by-minute approach makes the reasoning easy to audit but slow for
-long routes (a 2,800-mile trip is ~5,000 simulated minutes). Within those
-limits it's fine for a single request. See “What I'd do differently” below.
+record a non-driving rest period in that row of the grid). Plans are sliced
+into calendar days and each day is padded with off-duty time so every row on
+every log sheet sums to 24 hours.
 
 ## Running locally
 
@@ -69,10 +81,15 @@ cd backend
 python3 -m venv venv            # or reuse the one at ../venv
 source ../venv/bin/activate
 pip install -r requirements.txt
+python manage.py migrate
+python manage.py seed_demo      # demo users, password spotter123
 python manage.py runserver 0.0.0.0:8000
 ```
 
-API base: `http://localhost:8000`. Test it:
+Demo accounts: `dispatch` (dispatcher), `danton` / `bmiles` (drivers),
+`admin` (superuser) — all password `spotter123`.
+
+The stateless calculator (public):
 
 ```bash
 curl -X POST http://localhost:8000/api/trip/plan/ \
@@ -80,21 +97,31 @@ curl -X POST http://localhost:8000/api/trip/plan/ \
   -d '{"current_location":"Dallas, TX","pickup_location":"Dallas, TX","dropoff_location":"Houston, TX","current_cycle_used":30}'
 ```
 
-The plan response carries, beyond the route geometry: `route.highways`
-(best-effort `I-55`-style labels from OSRM), `usage` (the peak driving /
-duty-window / cycle hours reached anywhere in the trip — this is what
-drives the frontend's instrument cluster), stops with `stop_type`
-(`pickup|dropoff|fuel|break|rest|restart`) and `mile` markers, and
-per-day log segments with fractional-hour bounds.
-
-There's also a geocoder autocomplete endpoint the form's typeahead uses:
+The persisted planner (authenticated, dispatcher):
 
 ```bash
-curl "http://localhost:8000/api/geocode/suggest/?q=Dall"
+TOKEN=$(curl -s -X POST http://localhost:8000/api/auth/login/ \
+  -H "Content-Type: application/json" \
+  -d '{"username":"dispatch","password":"spotter123"}' | python3 -c "import sys,json;print(json.load(sys.stdin)['access'])")
+
+curl -X POST http://localhost:8000/api/trips/plan/ \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"current_location":"Dallas, TX","pickup_location":"Dallas, TX","dropoff_location":"Houston, TX","current_cycle_used":42.5,"driver_id":1,"vehicle_id":1}'
 ```
 
-Run the test suite (12 tests, including a long trip that triggers a recent
-restart):
+API surface (all under `/api/`): `auth/login|refresh|logout`, `me`,
+`drivers` (+ `drivers/create`), `vehicles`, `trips` (+ `trips/plan`),
+`trips/<id>` (PATCH = guarded status transitions), `alerts`,
+`alerts/<id>/resolve`, plus the public `trip/plan` and `geocode/suggest`.
+
+Watchdog test:
+
+```bash
+python manage.py watch_hos
+```
+
+Run the test suite (**35 tests**: engine rules, API, auth, permissions, trip
+persistence, watchdog, audit events):
 
 ```bash
 python manage.py test tripplanner
@@ -108,27 +135,29 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:5173`. The app targets `http://localhost:8000` by
-default; override with `VITE_API_BASE_URL` in a `.env` file if your backend
-lives elsewhere.
+Open `http://localhost:5173`. Unauthenticated visits land on `/login`;
+`/explore` is the public calculator. Override the backend with
+`VITE_API_BASE_URL` in a `.env` file if it's not at `http://localhost:8000`.
 
 ### Configuration (backend, via env vars)
 
 | Var | Default | Purpose |
 | --- | --- | --- |
+| `DATABASE_URL` | sqlite (dev) | Postgres connection string in prod |
 | `DJANGO_SECRET_KEY` | dev key (insecure) | set a real one in prod |
 | `DJANGO_DEBUG` | `True` | set `False` in prod |
 | `DJANGO_ALLOWED_HOSTS` | `localhost,127.0.0.1,...` | comma-separated |
-| `DJANGO_CORS_ALLOW_ALL` | `""` (off) | `True` allows any frontend origin |
+| `CORS_ALLOWED_ORIGINS` | localhost + Vercel origins | comma-separated; add prod |
 
 ## Deployment
 
-- **Backend** → Render. `backend/render.yaml` is a Blueprint: Web Service,
-  Python, free tier, `gunicorn spotter_backend.wsgi`, `/api/health/` health
-  check, auto-generated secret key.
-- **Frontend** → Vercel. `vercel.json` points Vercel at the `frontend` folder
-  and builds with Vite; set `VITE_API_BASE_URL` to the Render URL as an
-  environment variable.
+- **Backend** → Render. `backend/render.yaml` is a Blueprint: managed
+  **Postgres**, the **API web service** (gunicorn, `/api/health/` — which now
+  pings the DB), and an **hourly `watch_hos` cron**. Run `python manage.py
+  seed_demo` once in the Render shell after first deploy. Full steps in
+  `DEPLOY.md`.
+- **Frontend** → Vercel. `vercel.json` points Vercel at the `frontend` folder;
+  set `VITE_API_BASE_URL` to the Render URL.
 
 Geocoding and routing happen on the backend so no API keys ever reach the
 browser — both services are key-free anyway.
@@ -136,38 +165,28 @@ browser — both services are key-free anyway.
 ## Assumptions
 
 - **US only.** Nominatim requests are restricted with `countrycodes=us`.
-- The driver starts the clock at the moment of the request; the first log day
-  begins "today" at the server's local midnight (times shown in local/naive
-  time from the server).
-- Current location vs. pickup: if they differ, the route is still planned
-  pickup → dropoff (the driver is assumed to be *at* the pickup). In practice
-  route both legs if you want an accurate deadhead.
-- A truck burns fuel around every 1,000 miles; stops and rest break coordinates
-  are interpolated along the route shape so the map markers sit on the road.
-- When the 70-hour cap trips mid-shift, we start the 34-hour restart
-  immediately and resume the *remaining* trip after it — cycle resets to 0.
-- Breaks/rest are single continuous blocks (no sleeper splitting), which is
-  valid Federal representation of this plan.
-- Rest periods are logged as sleeper berth since this app is about OTR
-  long-haul trucking.
+- The driver starts the clock at the moment of the request; first log day
+  begins "today" at the server's local midnight.
+- Current location vs. pickup: if they differ, the route is planned
+  pickup → dropoff (the driver is assumed to be *at* the pickup).
+- Fuel at ~1,000-mile intervals; stop coordinates interpolated along the route.
+- Rest/restarts are single continuous sleeper-berth blocks.
+- **The watchdog is a planning guardrail, not an audited ELD record** — it
+  reasons from declared hours + the latest persisted plan. Real GPS/ELD feed is
+  the stated next step.
 
 ## What I'd do differently with more time
 
 - **Optimize the engine.** Minute-by-minute ticking is easy to verify but slow
-  on very long routes. I'd collapse the timeline into event-based jumps
-  (compute the next boundary analytically instead of stepping to it) — same
-  output, near-instant.
+  on very long routes; an event-based simulation would be near-instant.
 - **Cache results.** Store geocode + route responses keyed by input so repeat
-  trips don't hammer Nominatim/OSRM (both are polite-to-fair-use services).
-- **Robust geocoding.** Let the user pick from the top-N matches and edit the
-  trip's start date/time rather than assuming "now" and the first hit.
-- **Determine rest coords properly.** The interpolation places a marker on the
-  straight segment; a real system would snap it to nearby facilities and the
-  exact road position.
-- **Non-US support** via a country selector, and the 60/7 cycle option for
-  carriers that run under it.
+  trips don't hammer Nominatim/OSRM.
+- **Robust geocoding.** Let the user pick from the top-N matches and set start
+  date/time rather than assuming "now" and the first hit.
+- **Rest coords.** Snap interpolated rest markers to nearby facilities.
+- **Non-US support** via a country selector, plus the 60/7 cycle.
 
 ---
 
-Built with Django + DRF, React + Vite, Leaflet, Nominatim, and OSRM — no API
-keys, no database, no signups.
+Built with Django + DRF, React + Vite, Leaflet, Nominatim, OSRM, Postgres, and
+JWT auth — no API keys.

@@ -3,7 +3,7 @@
 You'll need: a GitHub account, a Render account, and a Vercel account.
 All configs are already committed in the repo (`backend/render.yaml`,
 `vercel.json`, env-var handling in `backend/spotter_backend/settings.py` and
-`frontend/src/App.jsx`).
+`frontend/src/api.js`).
 
 ## 1. Push to GitHub (do this first — Render & Vercel deploy from GitHub)
 
@@ -14,28 +14,34 @@ git remote add origin git@github.com:YOUR_USERNAME/spotter.git
 git push -u origin main
 ```
 
-## 2. Backend on Render
+The render blueprint creates three things in one go: a Postgres database,
+the API web service, and the hourly HOS-watchdog cron.
 
-1. Render dashboard → **New → Blueprint** (easiest, uses `backend/render.yaml`)
-   or **New → Web Service**.
-2. If using a Web Service instead of Blueprint:
-   - Connect your GitHub repo.
-   - **Root directory**: `backend`
-   - **Build command**: `pip install -r requirements.txt && python manage.py collectstatic --noinput`
-   - **Start command**: `gunicorn spotter_backend.wsgi:application --bind 0.0.0.0:$PORT --workers 2`
-   - **Plan**: Free.
-   - **Health check path**: `/api/health/`
-3. Env vars (Blueprint sets these for you except two):
-   - `DJANGO_SECRET_KEY` — add any long random string (Blueprint auto-generates it)
-   - `DJANGO_DEBUG` = `False`
-   - `DJANGO_ALLOWED_HOSTS` = `spotter-backend.onrender.com,*.onrender.com,localhost,127.0.0.1`
-     (keep this in sync with the actual service name Render gives you)
-   - `DJANGO_CORS_ALLOW_ALL` = `True`
-4. Deploy, wait for "live". Note your backend URL, e.g. `https://spotter-backend.onrender.com`.
-5. Verify: open `https://spotter-backend.onrender.com/api/health/` → should return `{"status":"ok"}`.
+## 2. Backend on Render (blueprint)
 
-> The public OSRM demo server and Nominatim are polite-to-fair-use. A free-tier
-> Render instance is fine for a demo/assessment.
+1. Render dashboard → **New → Blueprint** → pick the GitHub repo → it reads
+   `backend/render.yaml` automatically.
+2. Confirm the three resources it creates:
+   - **spotter-db** (Postgres, free)
+   - **spotter-backend** (web service)
+   - **spotter-hos-watch** (scheduled `0 * * * *`)
+3. After the first build, run the one-time seed so there are accounts to log
+   into. In the Render dashboard, **spotter-backend → Shell**, then:
+   ```bash
+   python manage.py seed_demo
+   ```
+   (creates `admin` / `dispatch` / `danton` / `bmiles`, each password
+   `spotter123`. If the seed ran but the build is mid-migration, run
+   `python manage.py migrate` first.)
+4. In Render, add the frontend origin to CORS: set the env var
+   `CORS_ALLOWED_ORIGINS` on **spotter-backend** to
+   `https://spotter-trip-planner.vercel.app` (once Vercel exists) and redeploy.
+   The blueprint already sets this to both known Vercel origins.
+5. Verify: open `https://spotter-backend.onrender.com/api/health/` →
+   should return `{"status":"ok","database":"ok"}`.
+
+> Never set `DJANGO_CORS_ALLOW_ALL=True` in prod — protected org endpoints
+> come CORS-locked by default now.
 
 ## 3. Frontend on Vercel
 
@@ -50,22 +56,29 @@ git push -u origin main
 
 ## 4. Final checks
 
-- Short trip: `Dallas, TX` → `Dallas, TX` → `Houston, TX`, cycle 30
-  → expect ~238 mi, 2 log sheets.
-- Long trip: `Los Angeles, CA` → `Los Angeles, CA` → `New York, NY`, cycle 60
-  → expect 6 log sheets, a 34-hour restart on day 1–2, fuel stops, every day
-  totaling 24.0.
-- Open the Vercel URL, plan a trip, confirm map tiles, markers, and log sheets
-  all render (CORS is permissive on the backend so the frontend origin is fine).
+- Open the Vercel URL → `/` redirects to the **sign-in** screen.
+- Log in as `dispatch / spotter123` → the dispatcher board; open the seeded
+  trip, advance statuses, plan + assign a new load.
+- Log in as `danton / spotter123` → driver home with the HOS position, alerts,
+  and that driver's trip list.
+- Watchdog: assign a load with a high cycle to a driver, then run
+  `python manage.py watch_hos` from the Render shell — the dispatcher board's
+  **watchdog** rail shows the new alert. The hourly cron keeps it fresh.
+- Public demo still live at `/explore` (no login): `Dallas, TX` →
+  `Houston, TX` → expect ~238 mi and 2 log sheets.
 
 ## If you hit trouble
 
+- **WATCHDOG / seed DB not connected** — confirm `DATABASE_URL` env var is set
+  on both services (blueprint wires it from `spotter-db`).
 - **Backend 500 / log shows geo/routing errors** — public Nominatim/OSRM can be
   flaky; the app returns clear errors and it's a free-tier constraint. Retry.
-- **CORS errors in the browser** — confirm `DJANGO_CORS_ALLOW_ALL=True` on
-  Render and redeploy.
+- **CORS errors in the browser** — the frontend origin must be in
+  `CORS_ALLOWED_ORIGINS` on Render. Add the final Vercel URL and redeploy
+  (do **not** enable the allow-all fallback).
 - **Log sheet times look off** — the engine starts the trip at server local
-  time; on Render UTC, so a trip planned "now" starts at UTC now. A real product
-  would let you pick a start time (see README).
+  time; on Render UTC, so a trip planned "now" starts at UTC now. A real fleet
+  tool would let you pick a start time (see README).
 - **Health check failing** — Render hits `/api/health/` with GET; confirm that
-  URL returns 200 on your deployed host.
+  URL returns 200 (it now also pings the database, so a broken DB will show
+  `"database":"unreachable"`)
