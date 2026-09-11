@@ -17,12 +17,17 @@ Live demo: **TODO-frontend-url** · API: **TODO-backend-url**
 **Org layer** (new)
 - Role-based sign-in: **driver**, **dispatcher**, **admin**, **auditor**.
 - Drivers: their own trips, live HOS position (cycle used, truck), open
-  watchdog flags, "plan my trip" → persisted load, chargeable log sheets.
+  watchdog flags, and the **driver cab** — the home view: signal rest / driving
+  / on-duty from `DutyEvent`, and the live RODS log sheet draws itself as you
+  roll through the day.
 - Dispatchers: the **load board** (create / assign / advance statuses),
-  fleet roster, and the **watchdog** alert queue.
+  fleet roster, Drivers/Vehicles tabs with cycle-reset, and the **watchdog**
+  alert queue.
 - Auditors: a read-only **safety & compliance** view (`/safety`) with the
   fleet board, open HOS flags, and a **one-click compliance packet** — every
   drawn log sheet as a single PDF (`/api/export/logs.pdf`).
+- Admin: the SPA **AdminConsole** (`/admin`) for full fleet CRUD — drivers
+  and vehicles, with name, role, truck, CDL, cycle used, active status.
 - Trips persist to Postgres with per-day logs; every status change is
   **audited per user** (`TripEvent`).
 - The **HOS watchdog** (`manage.py watch_hos`, run hourly on Render): a
@@ -117,10 +122,13 @@ curl -X POST http://localhost:8000/api/trips/plan/ \
 ```
 
 API surface (all under `/api/`): `auth/login|refresh|logout`, `me`,
-`drivers` (+ `drivers/create`), `vehicles`, `trips` (+ `trips/plan`),
-`trips/<id>` (PATCH = guarded status transitions), `alerts`,
-`alerts/<id>/resolve`, `export/logs.pdf` (compliance packet), plus the public
-`trip/plan` and `geocode/suggest`, and `schema/` + `docs/` (OpenAPI/Swagger).
+`duty` (GET current + POST events), `drivers` (+ `drivers/create`),
+`drivers/<id>` (GET / PATCH admin-only), `drivers/<id>/reset-cycle`,
+`vehicles` (+ POST admin-only) + `vehicles/<id>` (PATCH admin-only),
+`trips` (+ `trips/plan`), `trips/<id>` (PATCH = guarded status transitions),
+`alerts`, `alerts/<id>/resolve`, `export/logs.pdf` (compliance packet),
+plus the public `trip/plan` and `geocode/suggest`, and `schema/` + `docs/`
+(OpenAPI/Swagger).
 
 Watchdog test:
 
@@ -128,11 +136,19 @@ Watchdog test:
 python manage.py watch_hos
 ```
 
-Run the test suite (**46 tests**: engine rules, API, auth, permissions, trip
-persistence, watchdog + debounce, audit events, auditor read-only, PDF export):
+Run the test suite (**72 tests**: engine rules, API, auth, permissions, trip
+persistence, watchdog + debounce, audit events, auditor read-only, PDF export,
+duty events, driver self-PATCH, admin CRUD):
 
 ```bash
 python manage.py test tripplanner
+```
+
+Browser end-to-end smoke (**10 checks**: driver cab / live RODS, admin CRUD,
+dispatcher tabs, auditor safety):
+
+```bash
+node frontend/e2e/smoke.mjs
 ```
 
 ### Frontend (React + Vite + Leaflet)

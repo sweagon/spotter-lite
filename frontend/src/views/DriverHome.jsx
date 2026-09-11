@@ -1,44 +1,70 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { apiJson } from "../api";
 import PlannerForm from "../components/PlannerForm";
 import PlanResults from "../components/PlanResults";
+import DutyControl from "../components/DutyControl";
+import LiveLogDay from "../components/LiveLogDay";
 import { useAuth } from "../auth";
 
+const SELF_PATCH = {
+  assigned: ["en_route"],
+  en_route: ["stopped", "delivered"],
+  stopped: ["en_route", "delivered"],
+  delivered: [],
+  draft: [],
+  cancelled: [],
+};
+
+/** the driver cab: plan a load, ride it through the status flow (start /
+ * rest / stop / deliver) and signal duty changes that draw today's live
+ * RODS sheet. */
 export default function DriverHome() {
   const { user } = useAuth();
   const [me, setMe] = useState(null);
   const [trips, setTrips] = useState([]);
   const [selected, setSelected] = useState(null);
   const [result, setResult] = useState(null);
+  const [planning, setPlanning] = useState(false);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState(null);
+  const toastTimer = useRef(null);
+
+  const duty = me?.duty ?? null;
+  const profile = me?.driver ?? null;
+
+  function flash(message) {
+    setToast(message);
+    clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 4000);
+  }
+
+  async function refresh() {
+    const [m, t] = await Promise.all([apiJson("/api/me/"), apiJson("/api/trips/")]);
+    if (m.ok) setMe(m.data);
+    if (t.ok) setTrips(t.data);
+  }
 
   useEffect(() => {
-    apiJson("/api/me/").then(({ ok, data }) => ok && setMe(data));
-    async function initialFetch() {
-      const { ok, data } = await apiJson("/api/trips/");
-      if (ok) setTrips(data);
-    }
-    initialFetch();
+    refresh();
+    return () => clearTimeout(toastTimer.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  async function refreshTrips() {
-    const { ok, data } = await apiJson("/api/trips/");
-    if (ok) setTrips(data);
-  }
 
   async function plan(payload) {
     setBusy(true);
     setError(null);
     setSelected(null);
+    setResult(null);
     try {
       const { ok, data } = await apiJson("/api/trips/plan/", {
         method: "POST",
-        body: { ...payload, driver_id: me?.driver?.id, vehicle_id: me?.driver?.vehicle_id ?? null },
+        body: { ...payload, driver_id: profile?.id, vehicle_id: profile?.vehicle_id ?? null },
       });
       if (ok) {
         setResult(data);
-        refreshTrips();
+        await refresh();
+        flash(`trip #${data.trip?.id} planned — when you roll, mark it Start and your log lines up.`);
       } else {
         setError(data?.error || "Could not plan that trip.");
       }
@@ -55,29 +81,82 @@ export default function DriverHome() {
     }
   }
 
-  const activeTrip = selected;
+  async function commitDuty(status, note) {
+    const { ok, data } = await apiJson("/api/duty/events/", {
+      method: "POST",
+      body: { status, remark: note },
+    });
+    if (ok) {
+      setMe((m) => ({ ...m, duty: data }));
+      flash(`You're now ${status.replaceAll("_", " ")}.`);
+      return true;
+    }
+    setError(data?.error || "Could not change duty status.");
+    return false;
+  }
+
+  async function tripAction(trip, next) {
+    const dutyFor = {
+      en_route: "driving",
+      stopped: "off_duty",
+      delivered: "off_duty",
+    };
+    if (!dutyFor[next]) return;
+    setBusy(true);
+    try {
+      const { ok, data } = await apiJson(`/api/trips/${trip.id}/`, {
+        method: "PATCH",
+        body: { status: next },
+      });
+      if (ok) {
+        setSelected(data);
+        await commitDuty(dutyFor[next], "");
+        await refresh();
+        flash(`Trip marked ${next.replaceAll("_", " ")}.`);
+      } else {
+        setError(data?.error || "Could not update the trip.");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const todayDay = duty
+    ? {
+        day_number: 0,
+        date: new Date().toISOString().slice(0, 10),
+        segments: duty.segments,
+        totals: duty.totals,
+      }
+    : null;
 
   return (
     <div className="shell driver-shell">
       <aside className="rail">
         <p className="rail-hello">
           {user.first_name || user.username}
-          {activeTrip ? " · trip view" : " · plan view"}
+          {selected ? " · trip view" : ""}
         </p>
-        {me?.driver && (
+        {profile && (
           <section className="hos-card">
             <div className="hos-card-row">
               <span>cycle used</span>
               <span className="num">
-                {me.driver.cycle_used}
+                {profile.cycle_used}
                 <small> / 70</small>
               </span>
             </div>
             <div className="hos-card-row">
               <span>vehicle</span>
-              <span className="num">{me.driver.vehicle_unit || "—"}</span>
+              <span className="num">{profile.vehicle_unit || "—"}</span>
             </div>
-            {me.alerts?.length > 0 && (
+            {duty?.today_driving_hours != null && (
+              <div className="hos-card-row">
+                <span>driving today</span>
+                <span className="num">{duty.today_driving_hours}h</span>
+              </div>
+            )}
+            {me?.alerts?.length > 0 && (
               <div className="hos-alerts">
                 <p className="hos-alerts-title">watchdog flags</p>
                 {me.alerts.map((a) => (
@@ -90,9 +169,27 @@ export default function DriverHome() {
           </section>
         )}
 
-        <div className={`rail-block ${!activeTrip ? "rail-active" : ""}`}>
-          <button className="rail-link" onClick={() => { setSelected(null); setResult(null); }} disabled={!activeTrip && !result}>
-            ← plan a trip
+        <div className="rail-block">
+          <button
+            className={`rail-link ${!selected && !result && !planning ? "rail-active" : ""}`}
+            onClick={() => { setSelected(null); setResult(null); setPlanning(false); }}
+          >
+            ← duty &amp; today's log
+          </button>
+          <button
+            className={`rail-link ${planning ? "rail-active" : ""}`}
+            onClick={() => { setSelected(null); setResult(null); setPlanning(true); }}
+          >
+            + plan a trip
+          </button>
+          <button
+            className="rail-link"
+            onClick={async () => {
+              const { ok, data } = await apiJson("/api/duty/");
+              if (ok) setMe((m) => ({ ...m, duty: data }));
+            }}
+          >
+            ↻ refresh today
           </button>
         </div>
 
@@ -105,7 +202,7 @@ export default function DriverHome() {
             {trips.slice(0, 15).map((t) => (
               <button
                 key={t.id}
-                className={`trip-row ${activeTrip?.id === t.id ? "trip-active" : ""}`}
+                className={`trip-row ${selected?.id === t.id ? "trip-active" : ""}`}
                 onClick={() => openTrip(t.id)}
               >
                 <span className="trip-row-main">
@@ -122,14 +219,60 @@ export default function DriverHome() {
       </aside>
 
       <main className="canvas">
+        {toast && (
+          <div className="toast" role="status">
+            {toast}
+          </div>
+        )}
         {error && (
           <div className="panel-error" role="alert">
-            <p className="panel-error-title">Could not plan that trip.</p>
+            <p className="panel-error-title">Something went wrong.</p>
             <p>{error}</p>
           </div>
         )}
 
-        {!activeTrip && (
+        {!selected && !result && (
+          <div className="cab-grid">
+            <DutyControl
+              current={duty?.current}
+              onCommit={commitDuty}
+              disabled={busy}
+            />
+
+            <div className="live-log-wrap">
+              {todayDay && (
+                <LiveLogDay
+                  day={todayDay}
+                  cycleUsed={profile?.cycle_used}
+                  drivingHours={duty.today_driving_hours}
+                />
+              )}
+              {!todayDay && (
+                <div className="empty">
+                  <p className="empty-copy">set your first duty status and today's log sheet draws here.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {!selected && result && !planning && (
+          <div className="results">
+            <p className="plan-saved">
+              planner generated · trip saved as #{result.trip?.id} ·{" "}
+              <button className="btn-mini" onClick={async () => { await openTrip(result.trip.id); }}>
+                open to start it
+              </button>
+            </p>
+            <PlanResults
+              result={result}
+              pickup={result.trip?.pickup_location ?? "Pickup"}
+              dropoff={result.trip?.dropoff_location ?? "Dropoff"}
+            />
+          </div>
+        )}
+
+        {!selected && planning && (
           <div className="plan-layout">
             <div className="plan-form-col">
               <PlannerForm onSubmit={plan} submitting={busy} submitLabel="Plan my trip" />
@@ -138,25 +281,43 @@ export default function DriverHome() {
               {result && (
                 <>
                   <p className="plan-saved">planner generated · trip saved as #{result.trip?.id}</p>
-                  <PlanResults result={result} pickup={result.trip?.pickup_location ?? "Pickup"} dropoff={result.trip?.dropoff_location ?? "Dropoff"} />
+                  <PlanResults
+                    result={result}
+                    pickup={result.trip?.pickup_location ?? "Pickup"}
+                    dropoff={result.trip?.dropoff_location ?? "Dropoff"}
+                  />
                 </>
               )}
-              {!result && !busy && (
-                <div className="empty">
-                  <p className="empty-copy">the route, gauges and logs land here once you plan.</p>
-                </div>
+              {!result && (
+                <div className="empty"><p className="empty-copy">the route, gauges and logs land here.</p></div>
               )}
-              {!result && busy && <p className="plan-busy">planning…</p>}
             </div>
           </div>
         )}
 
-        {activeTrip && (
-          <PlanResults
-            result={activeTrip}
-            pickup={activeTrip.pickup_location}
-            dropoff={activeTrip.dropoff_location}
-          />
+        {selected && (
+          <>
+            <div className="trip-actions">
+              <span className="trip-actions-label">
+                #{selected.id} · {selected.pickup_location} → {selected.dropoff_location}
+              </span>
+              {(SELF_PATCH[selected.status] || []).map((n) => (
+                <button key={n} className="btn-mini" onClick={() => tripAction(selected, n)}>
+                  {n === "en_route" ? "start / continue" : n === "stopped" ? "stop" : "deliver"}
+                </button>
+              ))}
+              {selected.status === "en_route" && (
+                <button className="btn-mini" onClick={() => commitDuty("sleeper_berth", "")}>
+                  rest
+                </button>
+              )}
+            </div>
+            <PlanResults
+              result={selected}
+              pickup={selected.pickup_location}
+              dropoff={selected.dropoff_location}
+            />
+          </>
         )}
       </main>
     </div>

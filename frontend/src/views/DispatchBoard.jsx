@@ -6,6 +6,7 @@ import PlanResults from "../components/PlanResults";
 const STATUSES = ["draft", "assigned", "en_route", "stopped", "delivered", "cancelled"];
 
 export default function DispatchBoard() {
+  const [tab, setTab] = useState("trips");
   const [trips, setTrips] = useState([]);
   const [drivers, setDrivers] = useState([]);
   const [vehicles, setVehicles] = useState([]);
@@ -81,6 +82,11 @@ export default function DispatchBoard() {
     setAlerts((al) => al.filter((x) => x.id !== id));
   }
 
+  async function resetCycle(id) {
+    const { ok } = await apiJson(`/api/drivers/${id}/reset-cycle/`, { method: "POST", body: {} });
+    if (ok) loadAll();
+  }
+
   const nextStatus = {
     draft: ["assigned", "cancelled"],
     assigned: ["en_route", "cancelled"],
@@ -135,7 +141,70 @@ export default function DispatchBoard() {
           </div>
         )}
 
-        {planning && (
+        <div className="board-filters">
+          <button className={`chip ${tab === "trips" ? "chip-on" : ""}`} onClick={() => setTab("trips")}>
+            trips
+          </button>
+          <button className={`chip ${tab === "drivers" ? "chip-on" : ""}`} onClick={() => setTab("drivers")}>
+            drivers <span className="num">{drivers.length}</span>
+          </button>
+          <button className={`chip ${tab === "vehicles" ? "chip-on" : ""}`} onClick={() => setTab("vehicles")}>
+            vehicles <span className="num">{vehicles.length}</span>
+          </button>
+        </div>
+
+        {tab === "drivers" && (
+          <div className="board-list">
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>driver</th><th>role</th><th>truck</th><th>cycle</th><th>hours today</th><th>status</th><th />
+                </tr>
+              </thead>
+              <tbody>
+                {drivers.map((d) => (
+                  <tr key={d.id}>
+                    <td className="num">{d.user.username}<br /><span className="muted">{d.user.first_name} {d.user.last_name}</span></td>
+                    <td>{d.user.role.toLowerCase()}</td>
+                    <td className="num">{d.vehicle_unit || "—"}</td>
+                    <td className="num">{d.cycle_used.toFixed(1)}h</td>
+                    <td className="num">{d.today_driving_hours.toFixed(1)}h</td>
+                    <td>{d.active ? "active" : "off"}</td>
+                    <td className="table-actions">
+                      <button className="btn-mini" onClick={() => resetCycle(d.id)}>reset cycle</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {tab === "vehicles" && (
+          <div className="board-list">
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>unit</th><th>type</th><th>vin</th><th>odometer</th><th>assigned to</th><th>status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {vehicles.map((v) => (
+                  <tr key={v.id}>
+                    <td className="num">{v.unit_no}</td>
+                    <td>{v.vehicle_type}</td>
+                    <td className="num">{v.vin || "—"}</td>
+                    <td className="num">{v.current_odometer ? v.current_odometer.toLocaleString() : "—"}</td>
+                    <td className="num">{v.assigned_driver || "—"}</td>
+                    <td>{v.active ? "active" : "off"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {tab === "trips" && planning && (
           <div className="plan-layout">
             <div className="plan-form-col">
               <PlannerForm
@@ -163,7 +232,7 @@ export default function DispatchBoard() {
           </div>
         )}
 
-        {!planning && (
+        {tab === "trips" && !planning && (
           <>
             <div className="board-filters">
               <button className={`chip ${statusFilter === "all" ? "chip-on" : ""}`} onClick={() => setStatusFilter("all")}>

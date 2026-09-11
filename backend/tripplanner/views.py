@@ -18,7 +18,8 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.views import TokenObtainPairView
 
-from .models import Alert, DailyLog, Driver, Trip, TripEvent, Vehicle
+from . import duty
+from .models import Alert, DailyLog, Driver, DutyEvent, Trip, TripEvent, Vehicle
 from .permissions import IsDispatcher
 from .pdf_export import build_logs_pdf
 from .routing import geocode, get_route, suggest
@@ -26,6 +27,7 @@ from .hos_engine import plan_trip, slice_into_days, compute_daily_totals
 from .serializers import (
     AlertSerializer,
     DriverSerializer,
+    DutyEventSerializer,
     TripPlanRequestSerializer,
     TripSerializer,
     UserSummarySerializer,
@@ -236,6 +238,114 @@ class LogoutView(APIView):
         return Response({"detail": "logged out"})
 
 
+def _duty_payload(driver):
+    """today's duty state for a driver: open event + rows + a drawable day
+    (segments padded to 24h) so the cab and the board render identically."""
+    segments = duty.today_segments(driver)
+    open_ev = duty.open_event(driver)
+    current = None
+    if open_ev:
+        current = {
+            "id": open_ev.id,
+            "status": open_ev.status,
+            "status_label": open_ev.get_status_display(),
+            "started_at": open_ev.started_at.isoformat(),
+            "ended_at": open_ev.ended_at.isoformat() if open_ev.ended_at else None,
+            "location": open_ev.location,
+            "remark": open_ev.remark,
+            "trip_id": open_ev.trip_id,
+        }
+    return {
+        "driver_id": driver.id,
+        "current": current,
+        "today": duty.today_events(driver),
+        "segments": segments,
+        "totals": duty.today_totals(segments),
+        "today_driving_hours": duty.today_driving_hours(driver),
+    }
+
+
+class DutyStateView(APIView):
+    """GET /api/duty/ - the requesting driver's current duty status and
+    today's record of duty status. fleet staff may ask for ?driver_id=."""
+
+    @extend_schema(
+        parameters=[OpenApiParameter(name="driver_id", type=int)],
+        responses={200: OpenApiTypes.OBJECT, 403: OpenApiTypes.OBJECT, 404: OpenApiTypes.OBJECT},
+        description="current duty state + today's RODS for a driver",
+    )
+    def get(self, request):
+        driver_id = request.query_params.get("driver_id")
+        if request.user.can_manage_fleet and driver_id:
+            try:
+                driver = Driver.objects.get(pk=driver_id)
+            except Driver.DoesNotExist:
+                return Response({"error": "no such driver"}, status=status.HTTP_404_NOT_FOUND)
+        else:
+            profile = getattr(request.user, "driver_profile", None)
+            if profile is None:
+                return Response({"error": "no driver profile for this user"},
+                                status=status.HTTP_403_FORBIDDEN)
+            driver = profile
+        return Response(_duty_payload(driver))
+
+
+class DutyEventCreateView(APIView):
+    """POST /api/duty/events/ {status, location?, remark?, trip_id?} -
+    close the driver's current status and open a new one. drivers only."""
+
+    @extend_schema(
+        request=DutyEventSerializer,
+        responses={201: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT, 403: OpenApiTypes.OBJECT},
+        description="record a duty-status change (closes the previous event)",
+    )
+    def post(self, request):
+        profile = getattr(request.user, "driver_profile", None)
+        if request.user.role != "driver" or profile is None:
+            return Response({"error": "drivers only"},
+                            status=status.HTTP_403_FORBIDDEN)
+
+        status_value = request.data.get("status")
+        valid = {s for s, _ in DutyEvent.STATUS_CHOICES}
+        if status_value not in valid:
+            return Response({"error": "invalid duty status"},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        open_ev = duty.open_event(profile)
+        if open_ev and open_ev.status == status_value:
+            return Response(
+                {"error": f"already on duty status {open_ev.get_status_display()}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        now = timezone.now()
+        trip_id = request.data.get("trip_id")
+        trip = None
+        if trip_id:
+            trip = Trip.objects.filter(pk=trip_id, driver=profile).first()
+            if trip is None:
+                return Response({"error": "trip not found for this driver"},
+                                status=status.HTTP_400_BAD_REQUEST)
+
+        if open_ev:
+            open_ev.ended_at = now
+            open_ev.save(update_fields=["ended_at"])
+
+        DutyEvent.objects.create(
+            driver=profile,
+            status=status_value,
+            started_at=now,
+            location=(request.data.get("location") or "").strip()[:200],
+            remark=(request.data.get("remark") or "").strip()[:255],
+            trip=trip,
+        )
+        logger.info(
+            "duty_event user=%s status=%s trip=%s",
+            request.user.username, status_value, trip.id if trip else None,
+        )
+        return Response(_duty_payload(profile), status=status.HTTP_201_CREATED)
+
+
 class MeView(APIView):
     """GET /api/me/ - current user + (for drivers) their fleet profile +
     open alerts. what the SPA needs to paint the right home screen."""
@@ -255,6 +365,7 @@ class MeView(APIView):
                 "cycle_used": profile.cycle_used,
                 "cdl_number": profile.cdl_number,
             }
+            data["duty"] = _duty_payload(profile)
             data["alerts"] = AlertSerializer(
                 profile.alerts.filter(cleared=False)[:10], many=True
             ).data
@@ -299,6 +410,88 @@ class DriverDetailView(APIView):
             return Response({"error": "no such driver"}, status=status.HTTP_404_NOT_FOUND)
         return Response(DriverSerializer(driver).data)
 
+    @extend_schema(
+        request=OpenApiTypes.OBJECT,
+        responses={200: DriverSerializer, 400: OpenApiTypes.OBJECT, 403: OpenApiTypes.OBJECT},
+        description="admin edits a driver profile (name, truck, CDL, cycle, active, role)",
+    )
+    def patch(self, request, pk):
+        if not request.user.is_admin:
+            return Response({"error": "admins only"},
+                            status=status.HTTP_403_FORBIDDEN)
+        try:
+            driver = Driver.objects.select_related("user", "vehicle").get(pk=pk)
+        except Driver.DoesNotExist:
+            return Response({"error": "no such driver"}, status=status.HTTP_404_NOT_FOUND)
+        user = driver.user
+
+        for field in ("first_name", "last_name"):
+            if field in request.data:
+                setattr(user, field, (request.data[field] or "").strip())
+        if "role" in request.data:
+            role = request.data["role"]
+            if role not in dict(User.ROLE_CHOICES):
+                return Response({"error": "invalid role"},
+                                status=status.HTTP_400_BAD_REQUEST)
+            if user.pk == request.user.pk and role != "admin":
+                return Response({"error": "you cannot demote your own account"},
+                                status=status.HTTP_400_BAD_REQUEST)
+            user.role = role
+            user.is_staff = role == "admin"
+        user.save()
+
+        if "vehicle_id" in request.data:
+            vehicle_id = request.data["vehicle_id"]
+            if vehicle_id in (None, ""):
+                driver.vehicle = None
+            else:
+                try:
+                    vehicle = Vehicle.objects.get(pk=vehicle_id)
+                except Vehicle.DoesNotExist:
+                    return Response({"error": "no such vehicle"},
+                                    status=status.HTTP_400_BAD_REQUEST)
+                occupied = Driver.objects.filter(vehicle=vehicle).exclude(pk=driver.pk).exists()
+                if occupied:
+                    return Response({"error": "that vehicle is already assigned"},
+                                    status=status.HTTP_400_BAD_REQUEST)
+                driver.vehicle = vehicle
+        for field in ("cdl_number", "cycle_used"):
+            if field in request.data:
+                setattr(driver, field, request.data[field])
+        if "active" in request.data:
+            driver.active = bool(request.data["active"])
+        driver.save()
+        return Response(DriverSerializer(driver).data)
+
+
+class DriverCycleResetView(APIView):
+    """POST /api/drivers/<id>/reset-cycle/ - zero the 70h cycle (admin or
+    dispatcher). the watchdog re-projects from the new declared balance."""
+
+    permission_classes = [IsDispatcher]
+
+    @extend_schema(
+        request=OpenApiTypes.OBJECT,
+        responses={200: DriverSerializer, 404: OpenApiTypes.OBJECT},
+        description="reset a driver's 70h/8-day cycle balance",
+    )
+    def post(self, request, pk):
+        try:
+            driver = Driver.objects.select_related("user", "vehicle").get(pk=pk)
+        except Driver.DoesNotExist:
+            return Response({"error": "no such driver"}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            cycle = float(request.data.get("cycle_used") or 0)
+        except (TypeError, ValueError):
+            return Response({"error": "cycle_used must be a number"},
+                            status=status.HTTP_400_BAD_REQUEST)
+        driver.cycle_used = max(0.0, min(cycle, 70.0))
+        driver.last_cycle_reset = timezone.now()
+        driver.save(update_fields=["cycle_used", "last_cycle_reset"])
+        logger.info("cycle_reset driver=%s reset=%d by=%s",
+                    driver.user.username, driver.cycle_used, request.user.username)
+        return Response(DriverSerializer(driver).data)
+
 
 class VehicleListView(APIView):
     permission_classes = [IsAuthenticated]
@@ -313,6 +506,78 @@ class VehicleListView(APIView):
                             status=status.HTTP_403_FORBIDDEN)
         qs = Vehicle.objects.filter(active=True)
         return Response(VehicleSerializer(qs, many=True).data)
+
+    @extend_schema(
+        request=OpenApiTypes.OBJECT,
+        responses={201: VehicleSerializer, 400: OpenApiTypes.OBJECT, 403: OpenApiTypes.OBJECT},
+        description="admin adds a vehicle to the fleet",
+    )
+    def post(self, request):
+        if not request.user.is_admin:
+            return Response({"error": "admins only"},
+                            status=status.HTTP_403_FORBIDDEN)
+        unit_no = (request.data.get("unit_no") or "").strip()
+        if not unit_no:
+            return Response({"error": "unit no is required"},
+                            status=status.HTTP_400_BAD_REQUEST)
+        if Vehicle.objects.filter(unit_no=unit_no).exists():
+            return Response({"error": "unit no already in the fleet"},
+                            status=status.HTTP_400_BAD_REQUEST)
+        vehicle = Vehicle.objects.create(
+            unit_no=unit_no,
+            vin=(request.data.get("vin") or "").strip(),
+            vehicle_type=request.data.get("vehicle_type") or "sleeper",
+            current_odometer=request.data.get("current_odometer"),
+        )
+        return Response(VehicleSerializer(vehicle).data, status=status.HTTP_201_CREATED)
+
+
+class VehicleDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        responses={200: VehicleSerializer, 403: OpenApiTypes.OBJECT, 404: OpenApiTypes.OBJECT},
+        description="one vehicle (read for fleet staff, patch for admins)",
+    )
+    def get(self, request, pk):
+        if not request.user.can_manage_fleet:
+            return Response({"error": "fleet access denied"},
+                            status=status.HTTP_403_FORBIDDEN)
+        try:
+            vehicle = Vehicle.objects.get(pk=pk)
+        except Vehicle.DoesNotExist:
+            return Response({"error": "no such vehicle"}, status=status.HTTP_404_NOT_FOUND)
+        return Response(VehicleSerializer(vehicle).data)
+
+    @extend_schema(
+        request=OpenApiTypes.OBJECT,
+        responses={200: VehicleSerializer, 400: OpenApiTypes.OBJECT, 403: OpenApiTypes.OBJECT, 404: OpenApiTypes.OBJECT},
+        description="admin edits vin/type/odometer/active",
+    )
+    def patch(self, request, pk):
+        if not request.user.is_admin:
+            return Response({"error": "admins only"},
+                            status=status.HTTP_403_FORBIDDEN)
+        try:
+            vehicle = Vehicle.objects.get(pk=pk)
+        except Vehicle.DoesNotExist:
+            return Response({"error": "no such vehicle"}, status=status.HTTP_404_NOT_FOUND)
+        updates = {}
+        for field in ("vin", "vehicle_type", "current_odometer"):
+            if field in request.data:
+                updates[field] = request.data[field]
+        if "active" in request.data:
+            updates["active"] = bool(request.data["active"])
+        if "unit_no" in request.data and request.data["unit_no"]:
+            new_unit = request.data["unit_no"].strip()
+            if Vehicle.objects.filter(unit_no=new_unit).exclude(pk=vehicle.pk).exists():
+                return Response({"error": "unit no already in the fleet"},
+                                status=status.HTTP_400_BAD_REQUEST)
+            updates["unit_no"] = new_unit
+        for k, v in updates.items():
+            setattr(vehicle, k, v)
+        vehicle.save()
+        return Response(VehicleSerializer(vehicle).data)
 
 
 class CreateDriverView(APIView):
@@ -444,18 +709,34 @@ class TripDetailView(APIView):
     @extend_schema(
         request=OpenApiTypes.OBJECT,
         responses={200: TripSerializer, 400: OpenApiTypes.OBJECT, 403: OpenApiTypes.OBJECT},
-        description="dispatcher advances status / reassigns driver+vehicle",
+        description="advance status / reassign (dispatcher) — a driver may mark their own trip's status only",
     )
     def patch(self, request, pk):
         """status transitions + assignment changes, guarded so a load can't
-        jump out of order (assigned -> delivered without driving it)."""
-        if not request.user.is_dispatcher:
+        jump out of order (assigned -> delivered without driving it).
+        drivers may advance their *own* trip's status (start/stop/deliver)
+        but can never reassign driver/vehicle."""
+        if request.user.is_dispatcher:
+            try:
+                trip = Trip.objects.select_related("driver__user", "vehicle", "created_by").get(pk=pk)
+            except Trip.DoesNotExist:
+                return Response({"error": "no such trip"}, status=status.HTTP_404_NOT_FOUND)
+        elif request.user.role == "driver":
+            profile = getattr(request.user, "driver_profile", None)
+            try:
+                trip = Trip.objects.select_related("driver__user", "vehicle", "created_by").get(pk=pk)
+            except Trip.DoesNotExist:
+                return Response({"error": "no such trip"}, status=status.HTTP_404_NOT_FOUND)
+            if not profile or trip.driver_id != profile.id:
+                # hide existence, same as a missing trip
+                return Response({"error": "no such trip"}, status=status.HTTP_404_NOT_FOUND)
+            for field in ("driver_id", "vehicle_id"):
+                if field in request.data:
+                    return Response({"error": "drivers cannot reassign"},
+                                    status=status.HTTP_400_BAD_REQUEST)
+        else:
             return Response({"error": "dispatchers only"},
                             status=status.HTTP_403_FORBIDDEN)
-        try:
-            trip = Trip.objects.select_related("driver__user", "vehicle", "created_by").get(pk=pk)
-        except Trip.DoesNotExist:
-            return Response({"error": "no such trip"}, status=status.HTTP_404_NOT_FOUND)
 
         updates = {}
         status_from = trip.status

@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 
-from .models import Alert, Driver, Trip, TripEvent, User, Vehicle
+from .models import Alert, Driver, DutyEvent, Trip, TripEvent, User, Vehicle
 
 
 @admin.register(User)
@@ -54,3 +54,10 @@ class TripEventAdmin(admin.ModelAdmin):
     list_display = ("trip", "user", "from_status", "to_status", "at")
     list_filter = ("to_status",)
     search_fields = ("trip__pickup_location", "user__username")
+
+
+@admin.register(DutyEvent)
+class DutyEventAdmin(admin.ModelAdmin):
+    list_display = ("driver", "status", "started_at", "ended_at", "location")
+    list_filter = ("status",)
+    search_fields = ("driver__user__username", "location")

@@ -28,6 +28,7 @@ from django.core.management.base import BaseCommand
 from django.db.models import Prefetch
 from django.utils import timezone
 
+from tripplanner import duty
 from tripplanner.models import Alert, Driver, Trip
 
 DRIVE_LIMIT = 11.0
@@ -73,6 +74,15 @@ class Command(BaseCommand):
             window_pos = 0.0
             detail = []
 
+            # hours a driver actually logged driving today (self-declared
+            # duty events) — the watchdog treats that as real on top of the
+            # plan projection, so an already-driving driver can't be handed
+            # another full load.
+            actual_today = duty.today_driving_hours(driver)
+            drive_pos = actual_today
+            if actual_today > 0:
+                detail.append(f"actual {actual_today:.1f}h driving today")
+
             if last is not None:
                 usage = last.usage if isinstance(last.usage, dict) else {}
                 projected_drive = usage.get("driving_hours", 0.0) or 0.0
@@ -85,7 +95,7 @@ class Command(BaseCommand):
                     delta = driver.cycle_used - last.cycle_used_planned
                     projected_cycle += delta
 
-                drive_pos = projected_drive
+                drive_pos += projected_drive
                 window_pos = projected_window
                 cycle_pos = max(cycle_pos, projected_cycle)
                 detail.append(

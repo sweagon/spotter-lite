@@ -1308,3 +1308,288 @@
   font-family: inherit;
   color: inherit;
 }
+
+/* ---------------------------------------------------------------------
+ * driver cab: duty control + live RODS
+ * ------------------------------------------------------------------- */
+.cab-grid {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: var(--s-8);
+  align-items: start;
+}
+.live-log-wrap {
+  min-width: 0;
+}
+.toast {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--petrol-800);
+  border: 1px solid var(--teal-500);
+  border-radius: var(--r-sm);
+  color: var(--mint-200);
+  padding: var(--s-3) var(--s-4);
+  margin-bottom: var(--s-4);
+  animation: toast-in 180ms ease-out;
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+
+.duty-card {
+  background: rgba(10, 78, 97, 0.25);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-lg);
+  padding: var(--s-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  position: sticky;
+  top: var(--s-4);
+}
+.duty-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.duty-head .rail-sub {
+  margin: 0;
+}
+.duty-now {
+  font-family: var(--font-data);
+  font-size: var(--text-lg);
+  line-height: 1.2;
+}
+.duty-now--idle {
+  color: var(--ink-500);
+}
+.duty-now--off_duty {
+  color: var(--ink-300);
+}
+.duty-now--sleeper_berth {
+  color: var(--teal-400);
+}
+.duty-now--driving {
+  color: var(--coral-400);
+}
+.duty-now--on_duty_not_driving {
+  color: var(--mint-200);
+}
+
+.duty-statuses {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s-2);
+}
+.duty-btn {
+  background: rgba(159, 180, 184, 0.08);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  color: var(--ink-50);
+  font: inherit;
+  font-weight: 600;
+  padding: var(--s-3);
+  cursor: pointer;
+  text-align: left;
+}
+.duty-btn:hover:not(:disabled) {
+  border-color: var(--teal-500);
+}
+.duty-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.duty-btn--active.duty-btn--off_duty { background: rgba(92, 116, 124, 0.35); }
+.duty-btn--active.duty-btn--sleeper_berth { background: rgba(0, 128, 128, 0.35); }
+.duty-btn--active.duty-btn--driving { background: rgba(248, 73, 96, 0.3); }
+.duty-btn--active.duty-btn--on_duty_not_driving { background: rgba(188, 221, 222, 0.2); }
+
+.duty-confirm {
+  border-top: 1px solid var(--hairline);
+  padding-top: var(--s-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.duty-confirm-title {
+  margin: 0;
+  color: var(--ink-300);
+  font-size: var(--text-sm);
+}
+.duty-confirm-actions {
+  display: flex;
+  gap: var(--s-2);
+}
+.btn-mini--solid {
+  background: var(--teal-500);
+  border-color: var(--teal-500);
+  color: var(--petrol-950);
+}
+.btn-mini--solid:hover {
+  background: var(--teal-400);
+  border-color: var(--teal-400);
+  color: var(--petrol-950);
+}
+.duty-note {
+  width: 100%;
+  background: var(--petrol-900);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  color: var(--ink-50);
+  padding: var(--s-2) var(--s-3);
+  font: inherit;
+}
+
+.live-log {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+.live-log-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--s-6);
+  flex-wrap: wrap;
+}
+.live-log-title {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+.live-log-sub {
+  margin: 0;
+  color: var(--ink-300);
+  font-size: var(--text-xxs);
+}
+.live-log-stat {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+}
+.live-log-stat-num {
+  font-size: var(--data-lg);
+  color: var(--coral-400);
+}
+.live-log-stat-label {
+  color: var(--ink-300);
+  font-size: var(--text-xxs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.trip-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding-bottom: var(--s-4);
+}
+.trip-actions-label {
+  color: var(--ink-300);
+  font-family: var(--font-data);
+  margin-right: auto;
+}
+
+@media (max-width: 1024px) {
+  .cab-grid {
+    grid-template-columns: 1fr;
+  }
+  .duty-card {
+    position: static;
+  }
+}
+
+/* ---------------------------------------------------------------------
+ * admin console + dispatch fleet tab
+ * ------------------------------------------------------------------- */
+.admin-form {
+  background: rgba(10, 78, 97, 0.25);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-lg);
+  padding: var(--s-5);
+  margin-bottom: var(--s-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+.admin-form-title {
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+.admin-form-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--s-3);
+}
+.admin-form-actions {
+  display: flex;
+  gap: var(--s-2);
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  color: var(--ink-300);
+  font-size: var(--text-xxs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.input-mini {
+  background: var(--petrol-900);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  color: var(--ink-50);
+  padding: var(--s-2) var(--s-3);
+  font: inherit;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.input-mini:disabled {
+  opacity: 0.5;
+}
+.board-subhead {
+  color: var(--ink-300);
+  font-size: var(--text-sm);
+  margin: 0 0 var(--s-4);
+}
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: var(--s-4);
+  font-size: var(--text-sm);
+}
+.admin-table th {
+  text-align: left;
+  color: var(--ink-300);
+  font-weight: 600;
+  font-size: var(--text-xxs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: var(--s-2) var(--s-3);
+  border-bottom: 1px solid var(--hairline);
+}
+.admin-table td {
+  padding: var(--s-3);
+  border-bottom: 1px solid var(--hairline);
+  vertical-align: top;
+}
+.admin-table tr:hover td {
+  background: rgba(159, 180, 184, 0.04);
+}
+.table-actions {
+  display: flex;
+  gap: var(--s-2);
+  justify-content: flex-end;
+}
+.muted {
+  color: var(--ink-400);
+  font-size: var(--text-xxs);
+}
+@media (max-width: 900px) {
+  .admin-form-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}

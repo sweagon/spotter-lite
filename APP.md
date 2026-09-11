@@ -25,11 +25,11 @@
 
 ### 3. Fleet & access
 - Custom `User` with **roles admin / dispatcher / driver / auditor**; JWT login (rotated refresh tokens).
-- **Drivers**: see only their own trips (404-hiding), their HOS position, own-vehicle-only planning, open watchdog alerts.
-- **Dispatchers**: full fleet board — drivers, vehicles, all trips with **guarded status transitions** (`assigned → en route → stopped → delivered`, cancel) each recorded as a **`TripEvent`** audit row (who/when).
+- **Drivers**: see only their own trips (404-hiding), their HOS position, own-vehicle-only planning, open watchdog alerts. The **driver cab** is the home view — a sticky `DutyControl` card for signalling rest/start/stop today, and a `LiveLogDay` sheet that draws the real RODS line from today's `DutyEvent`s as they happen, with totalled driving and 24.00 checksum.
+- **Dispatchers**: full fleet board — drivers, vehicles, all trips with **guarded status transitions** (`assigned → en route → stopped → delivered`, cancel) each recorded as a **`TripEvent`** audit row (who/when); the Drivers/Vehicles tabs show the fleet read-only with cycle-reset.
 - **Auditors**: read-only `/safety` view — fleet posture KPIs, open HOS flags, drivers table, live load board, and a **one-click compliance packet** (`/api/export/logs.pdf`, ScopedRateThrottle `export`).
-- **Admin**: Django admin for every model.
-- Route guards in the SPA (`/login`, `/`, `/dispatch`, `/safety`, `/explore`); tokens in localStorage (documented trade-off).
+- **Admin**: the SPA **AdminConsole** (`/admin`) for fleet management — drivers CRUD (add, edit name/role/truck/CDL/cycle/active), vehicles CRUD (add, edit VIN/type/odometer/active), and cycle-reset; plus Django admin for every model.
+- Route guards in the SPA (`/login`, `/`, `/dispatch`, `/admin`, `/safety`, `/explore`); tokens in localStorage (documented trade-off).
 - Demo seed: 11 test users (2 admin / 3 dispatcher / 1 auditor / 5 drivers) on trucks D-1…D-5 with varied cycle balances — documented in `users.txt` (password `spotter123`).
 
 ### 4. HOS watchdog ("tracker agent")
@@ -52,7 +52,7 @@
 - **Postgres** via `DATABASE_URL` (sqlite fallback), fail-closed CORS, throttling (`plan` 20/hr, `suggest` 60/min, `export` 30/min), `/api/health/` DB ping, whitenoise static serving.
 - **OpenAPI**: `drf-spectacular` schema at `/api/schema/` + Swagger UI `/api/docs/` (0 schema errors; serializer `SerializerMethodField` type-hint warnings are cosmetic).
 - **PDF compliance packet** (`backend/tripplanner/pdf_export.py`): reportlab-built, role-scoped — dispatchers/admins/auditors any driver, drivers only their own runs; dips to 404 when nothing drawn.
-- **46 Django tests** (engine + auth + permissions + persistence + watchdog + debounce + audit + auditor read-only + PDF export) and **8 frontend geometry spec tests** all passing; 20-point Playwright browser suite + live dispatcher/driver E2E with zero JS errors.
+- **72 Django tests** (engine + auth + permissions + persistence + watchdog + debounce + audit + auditor read-only + PDF export + driver duty/self-PATCH/admin CRUD) and **8 frontend geometry spec tests** all passing; **10-point Playwright browser suite** (`frontend/e2e/smoke.mjs`) covering the driver cab, admin console CRUD, dispatcher fleet tabs, and auditor safety view with zero JS errors.
 - **CI** (`.github/workflows/ci.yml`): backend tests + OpenAPI composition check (sqlite), frontend `npm ci` + tests + lint + build on every push/PR.
 
 ## Known limits (by design)

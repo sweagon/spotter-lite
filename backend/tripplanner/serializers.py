@@ -1,7 +1,8 @@
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
-from .models import Alert, Driver, Trip, Vehicle
+from . import duty
+from .models import Alert, Driver, DutyEvent, Trip, Vehicle
 
 User = get_user_model()
 
@@ -56,22 +57,60 @@ class VehicleSerializer(serializers.ModelSerializer):
 
 class DriverSerializer(serializers.ModelSerializer):
     user = UserSummarySerializer(read_only=True)
+    vehicle_id = serializers.IntegerField(read_only=True, allow_null=True)
     vehicle_unit = serializers.SerializerMethodField()
+    current_duty = serializers.SerializerMethodField()
+    today_driving_hours = serializers.SerializerMethodField()
 
     class Meta:
         model = Driver
         fields = [
             "id",
             "user",
+            "vehicle_id",
             "vehicle_unit",
             "cdl_number",
             "cycle_used",
             "active",
+            "current_duty",
+            "today_driving_hours",
         ]
         read_only_fields = ["id"]
 
     def get_vehicle_unit(self, obj):
         return obj.vehicle.unit_no if obj.vehicle_id else None
+
+    def get_current_duty(self, obj):
+        ev = duty.open_event(obj)
+        if not ev:
+            return None
+        return {
+            "status": ev.status,
+            "status_label": ev.get_status_display(),
+            "since": ev.started_at.isoformat(),
+            "location": ev.location,
+        }
+
+    def get_today_driving_hours(self, obj):
+        return duty.today_driving_hours(obj)
+
+
+class DutyEventSerializer(serializers.ModelSerializer):
+    status_label = serializers.CharField(source="get_status_display", read_only=True)
+
+    class Meta:
+        model = DutyEvent
+        fields = [
+            "id",
+            "status",
+            "status_label",
+            "started_at",
+            "ended_at",
+            "location",
+            "remark",
+            "trip_id",
+        ]
+        read_only_fields = ["id", "started_at", "ended_at"]
 
 
 class AlertSerializer(serializers.ModelSerializer):

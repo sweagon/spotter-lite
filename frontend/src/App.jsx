@@ -7,6 +7,7 @@ import DriverHome from "./views/DriverHome";
 import DispatchBoard from "./views/DispatchBoard";
 import ExplorePlanner from "./views/ExplorePlanner";
 import SafetyView from "./views/SafetyView";
+import AdminConsole from "./views/AdminConsole";
 
 function RequireAuth() {
   const { user } = useAuth();
@@ -28,6 +29,13 @@ function RequireAuditor() {
   if (!user) return <Navigate to="/login" replace />;
   if (user.role !== "Auditor") return <Navigate to="/" replace />;
   return <SafetyView />;
+}
+
+function RequireAdmin() {
+  const { user } = useAuth();
+  if (!user) return <Navigate to="/login" replace />;
+  if (user.role !== "Admin") return <Navigate to="/dispatch" replace />;
+  return <AdminConsole />;
 }
 
 function Shell() {
@@ -57,6 +65,12 @@ function Shell() {
           {user.role === "Dispatcher" && (
             <Link className="topbar-link" to="/dispatch">board</Link>
           )}
+          {user.role === "Admin" && (
+            <>
+              <Link className="topbar-link" to="/dispatch">board</Link>
+              <Link className="topbar-link" to="/admin">admin</Link>
+            </>
+          )}
           {user.role === "Auditor" && (
             <Link className="topbar-link" to="/safety">safety</Link>
           )}
@@ -81,6 +95,7 @@ export default function App() {
             <Route path="/" element={<RequireAuth />} />
             <Route path="/dispatch" element={<RequireDispatcher />} />
             <Route path="/safety" element={<RequireAuditor />} />
+            <Route path="/admin" element={<RequireAdmin />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

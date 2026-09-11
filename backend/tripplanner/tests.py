@@ -21,7 +21,7 @@ from .hos_engine import (
     compute_daily_totals,
     merge_segments,
 )
-from .models import Alert, DailyLog, Driver, Trip, Vehicle
+from .models import Alert, DailyLog, Driver, DutyEvent, Trip, Vehicle
 from .routing import _normalize_highways
 from .views import _stop_type
 
@@ -376,8 +376,8 @@ class OrgPermissionsTests(TestCase):
             {"status": "en_route"},
             format="json",
         )
-        # writes are dispatcher-only; drivers get a hard 403 regardless of which trip
-        self.assertEqual(resp.status_code, 403)
+        # a trip that isn't yours does not exist: 404 hiding, same as reads
+        self.assertEqual(resp.status_code, 404)
 
     def test_driver_cannot_list_fleet(self):
         self.client.force_authenticate(self.alice)
@@ -723,3 +723,330 @@ class ExportLogsPDFTests(TestCase):
     def test_unauthenticated_export_is_401(self):
         resp = self._export()
         self.assertEqual(resp.status_code, 401)
+
+
+class DutyEventTests(TestCase):
+    """the driver's live record of duty status: one open event at a time,
+    today's sheet always balances to 24h, role access scoped."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.driver_user = User.objects.create_user(
+            username="duty", password="pw", role="driver"
+        )
+        self.driver = Driver.objects.create(user=self.driver_user)
+        self.other_user = User.objects.create_user(
+            username="other", password="pw", role="driver"
+        )
+        self.other = Driver.objects.create(user=self.other_user)
+        self.disp = User.objects.create_user(
+            username="dex", password="pw", role="dispatcher"
+        )
+        self.audit = User.objects.create_user(
+            username="audit", password="pw", role="auditor"
+        )
+
+    def _post(self, **body):
+        return self.client.post("/api/duty/events/", body, format="json")
+
+    def test_driver_posts_status_change(self):
+        self.client.force_authenticate(self.driver_user)
+        resp = self._post(status="driving", location="Dallas, TX")
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.data["current"]["status"], "driving")
+        self.assertEqual(DutyEvent.objects.filter(ended_at__isnull=True).count(), 1)
+
+    def test_next_change_closes_the_previous(self):
+        self.client.force_authenticate(self.driver_user)
+        self._post(status="driving", location="Dallas, TX")
+        resp = self._post(status="off_duty", location="Houston, TX")
+        self.assertEqual(resp.status_code, 201)
+        closed = DutyEvent.objects.get(status="driving")
+        self.assertIsNotNone(closed.ended_at)
+        open_evs = DutyEvent.objects.filter(ended_at__isnull=True)
+        self.assertEqual(open_evs.count(), 1)
+        self.assertEqual(open_evs.get().status, "off_duty")
+
+    def test_same_status_change_is_400(self):
+        self.client.force_authenticate(self.driver_user)
+        self._post(status="driving")
+        self.assertEqual(self._post(status="driving").status_code, 400)
+
+    def test_invalid_status_is_400(self):
+        self.client.force_authenticate(self.driver_user)
+        self.assertEqual(self._post(status="tow_plane").status_code, 400)
+
+    def test_non_driver_cannot_post(self):
+        self.client.force_authenticate(self.disp)
+        self.assertEqual(self._post(status="driving").status_code, 403)
+        self.client.force_authenticate(self.audit)
+        self.assertEqual(self._post(status="driving").status_code, 403)
+
+    def test_duty_state_segments_balance_to_24(self):
+        self.client.force_authenticate(self.driver_user)
+        self._post(status="driving", location="Dallas, TX")
+        self._post(status="sleeper_berth", location="I-20 rest area")
+        resp = self.client.get("/api/duty/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertGreaterEqual(len(resp.data["segments"]), 3)
+        total = sum(resp.data["totals"].values())
+        self.assertAlmostEqual(total, 24.0, places=2)
+
+    def test_fleet_or_auditor_can_read_any_driver(self):
+        self.client.force_authenticate(self.driver_user)
+        self._post(status="driving")
+        self.client.force_authenticate(self.audit)
+        resp = self.client.get(f"/api/duty/?driver_id={self.driver.id}")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data["current"]["status"], "driving")
+        self.client.force_authenticate(self.disp)
+        self.assertEqual(
+            self.client.get(f"/api/duty/?driver_id={self.driver.id}").status_code, 200
+        )
+
+    def test_driver_state_is_scoped_to_self(self):
+        self.client.force_authenticate(self.other_user)
+        resp = self.client.get(f"/api/duty/?driver_id={self.driver.id}")
+        # non-fleet driver_id is ignored: they get their own (empty) state
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data["driver_id"], self.other.id)
+
+    def test_me_includes_duty(self):
+        self.client.force_authenticate(self.driver_user)
+        self._post(status="off_duty")
+        resp = self.client.get("/api/me/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data["duty"]["current"]["status"], "off_duty")
+
+    def test_trip_must_belong_to_driver(self):
+        trip = Trip.objects.create(
+            created_by=self.disp, driver=self.other, current_location="A",
+            pickup_location="A", dropoff_location="B",
+        )
+        self.client.force_authenticate(self.driver_user)
+        self.assertEqual(
+            self._post(status="driving", trip_id=trip.id).status_code, 400
+        )
+
+
+class DriverSelfPatchTests(TestCase):
+    """a driver can advance their own load's status but never reassign."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.driver_user = User.objects.create_user(
+            username="pat", password="pw", role="driver"
+        )
+        self.driver = Driver.objects.create(user=self.driver_user)
+        self.other_user = User.objects.create_user(
+            username="bob", password="pw", role="driver"
+        )
+        self.other = Driver.objects.create(user=self.other_user)
+        self.disp = User.objects.create_user(
+            username="dex", password="pw", role="dispatcher"
+        )
+        self.audit = User.objects.create_user(
+            username="audit", password="pw", role="auditor"
+        )
+
+    def _trip(self, driver=None, status="assigned"):
+        return Trip.objects.create(
+            created_by=self.disp,
+            driver=driver or self.driver,
+            current_location="A", pickup_location="A", dropoff_location="B",
+            status=status,
+        )
+
+    def test_driver_starts_own_trip(self):
+        trip = self._trip()
+        self.client.force_authenticate(self.driver_user)
+        resp = self.client.patch(f"/api/trips/{trip.id}/", {"status": "en_route"}, format="json")
+        self.assertEqual(resp.status_code, 200)
+        trip.refresh_from_db()
+        self.assertEqual(trip.status, "en_route")
+        event = trip.events.first()
+        self.assertEqual(event.user_id, self.driver_user.id)
+        self.assertEqual(event.to_status, "en_route")
+
+    def test_driver_cannot_reassign(self):
+        trip = self._trip()
+        self.client.force_authenticate(self.driver_user)
+        resp = self.client.patch(
+            f"/api/trips/{trip.id}/", {"driver_id": self.other.id}, format="json"
+        )
+        self.assertEqual(resp.status_code, 400)
+
+    def test_driver_cannot_jump_out_of_order(self):
+        trip = self._trip()
+        self.client.force_authenticate(self.driver_user)
+        self.assertEqual(
+            self.client.patch(f"/api/trips/{trip.id}/", {"status": "delivered"}, format="json").status_code,
+            400,
+        )
+
+    def test_driver_cannot_touch_others_trip(self):
+        trip = self._trip(driver=self.other)
+        self.client.force_authenticate(self.driver_user)
+        self.assertEqual(
+            self.client.patch(f"/api/trips/{trip.id}/", {"status": "en_route"}, format="json").status_code,
+            404,
+        )
+
+    def test_auditor_still_cannot_patch(self):
+        trip = self._trip()
+        self.client.force_authenticate(self.audit)
+        self.assertEqual(
+            self.client.patch(f"/api/trips/{trip.id}/", {"status": "en_route"}, format="json").status_code,
+            403,
+        )
+
+
+class WatchdogActualHoursTests(TestCase):
+    """self-declared driving today counts toward the guardrail projection."""
+
+    def setUp(self):
+        self.driver_user = User.objects.create_user(
+            username="ron", password="pw", role="driver"
+        )
+        self.driver = Driver.objects.create(
+            user=self.driver_user, cycle_used=0.0
+        )
+        self.disp = User.objects.create_user(
+            username="dex", password="pw", role="dispatcher"
+        )
+
+    def _drove(self, hours=6.0):
+        now = timezone.now()
+        DutyEvent.objects.create(
+            driver=self.driver, status="driving",
+            started_at=now - timedelta(hours=hours),
+            ended_at=now - timedelta(hours=1),
+        )
+
+    def _trip(self, driving=6.0):
+        return Trip.objects.create(
+            created_by=self.disp,
+            driver=self.driver,
+            current_location="A", pickup_location="A", dropoff_location="B",
+            status="en_route",
+            usage={"driving_hours": driving, "window_hours": driving + 2,
+                   "cycle_hours": driving},
+            cycle_used_planned=0.0,
+            distance_miles=500, driving_minutes=600,
+        )
+
+    def test_actual_driving_pushes_over_11(self):
+        # 6h already driven today + a fresh 6h plan = 12h -> drive_11 fires.
+        self._drove(6.0)
+        self._trip(6.0)
+        from django.core.management import call_command
+        call_command("watch_hos", verbosity=0)
+        rules = set(Alert.objects.filter(driver=self.driver).values_list("rule", flat=True))
+        self.assertIn("drive_11", rules)
+
+    def test_no_actual_driving_stays_under(self):
+        # plan only: 6h drive, no actual hours -> no drive_11 alert.
+        self._trip(6.0)
+        from django.core.management import call_command
+        call_command("watch_hos", verbosity=0)
+        rules = set(Alert.objects.filter(driver=self.driver).values_list("rule", flat=True))
+        self.assertNotIn("drive_11", rules)
+
+
+class AdminCrudTests(TestCase):
+    """SPA admin console: drivers + vehicles CRUD, admin-scoped."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.admin = User.objects.create_user(
+            username="sasha", password="pw", role="admin"
+        )
+        self.disp = User.objects.create_user(
+            username="dex", password="pw", role="dispatcher"
+        )
+        self.audit = User.objects.create_user(
+            username="audit", password="pw", role="auditor"
+        )
+        self.driver_user = User.objects.create_user(
+            username="dora", password="pw", role="driver",
+            first_name="Dora", last_name="Anton",
+        )
+        self.driver = Driver.objects.create(
+            user=self.driver_user, cycle_used=42.5
+        )
+        self.v1 = Vehicle.objects.create(unit_no="V-1", vehicle_type="sleeper")
+        self.v2 = Vehicle.objects.create(unit_no="V-2", vehicle_type="daycab")
+
+    def test_admin_creates_vehicle(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.post("/api/vehicles/", {
+            "unit_no": "V-9", "vehicle_type": "reefer", "current_odometer": 120000,
+        }, format="json")
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.data["unit_no"], "V-9")
+
+    def test_dispatcher_cannot_create_vehicle(self):
+        self.client.force_authenticate(self.disp)
+        resp = self.client.post("/api/vehicles/", {"unit_no": "V-9"}, format="json")
+        self.assertEqual(resp.status_code, 403)
+
+    def test_admin_patches_vehicle(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.patch(f"/api/vehicles/{self.v1.id}/",
+                                 {"vin": "1HGCM82633A", "active": False}, format="json")
+        self.assertEqual(resp.status_code, 200)
+        self.v1.refresh_from_db()
+        self.assertEqual(self.v1.vin, "1HGCM82633A")
+        self.assertFalse(self.v1.active)
+
+    def test_admin_patches_driver(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.patch(f"/api/drivers/{self.driver.id}/", {
+            "first_name": "Dora", "last_name": "Anton-2",
+            "vehicle_id": self.v2.id, "cycle_used": 10,
+        }, format="json")
+        self.assertEqual(resp.status_code, 200)
+        self.driver.refresh_from_db()
+        self.driver_user.refresh_from_db()
+        self.assertEqual(self.driver.vehicle_id, self.v2.id)
+        self.assertEqual(self.driver.cycle_used, 10)
+        self.assertEqual(self.driver_user.last_name, "Anton-2")
+
+    def test_auditor_cannot_patch_driver(self):
+        self.client.force_authenticate(self.audit)
+        resp = self.client.patch(f"/api/drivers/{self.driver.id}/",
+                                 {"cycle_used": 5}, format="json")
+        self.assertEqual(resp.status_code, 403)
+
+    def test_admin_cannot_assign_occupied_vehicle(self):
+        other = Driver.objects.create(user=User.objects.create_user(
+            username="bob", password="pw", role="driver"))
+        other.vehicle = self.v2
+        other.save()
+        self.client.force_authenticate(self.admin)
+        resp = self.client.patch(f"/api/drivers/{self.driver.id}/",
+                                 {"vehicle_id": self.v2.id}, format="json")
+        self.assertEqual(resp.status_code, 400)
+
+    def test_admin_cannot_demote_self(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.patch(f"/api/drivers/{self.driver.id}/", {"role": "dispatcher"}, format="json")
+        self.assertEqual(resp.status_code, 200)
+        # now self-demote attempt on own profile (admin has no driver profile,
+        # so create one first)
+        admin_profile = Driver.objects.create(user=self.admin)
+        resp = self.client.patch(f"/api/drivers/{admin_profile.id}/", {"role": "driver"}, format="json")
+        self.assertEqual(resp.status_code, 400)
+
+    def test_reset_cycle_sets_zero_and_timestamp(self):
+        self.client.force_authenticate(self.disp)
+        resp = self.client.post(f"/api/drivers/{self.driver.id}/reset-cycle/", {}, format="json")
+        self.assertEqual(resp.status_code, 200)
+        self.driver.refresh_from_db()
+        self.assertEqual(self.driver.cycle_used, 0.0)
+        self.assertIsNotNone(self.driver.last_cycle_reset)
+
+    def test_auditor_cannot_reset_cycle(self):
+        self.client.force_authenticate(self.audit)
+        resp = self.client.post(f"/api/drivers/{self.driver.id}/reset-cycle/", {}, format="json")
+        self.assertEqual(resp.status_code, 403)
