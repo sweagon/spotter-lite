@@ -15,16 +15,21 @@ Live demo: **TODO-frontend-url** · API: **TODO-backend-url**
 ## What it does
 
 **Org layer** (new)
-- Role-based sign-in: **driver**, **dispatcher**, **admin**.
+- Role-based sign-in: **driver**, **dispatcher**, **admin**, **auditor**.
 - Drivers: their own trips, live HOS position (cycle used, truck), open
   watchdog flags, "plan my trip" → persisted load, chargeable log sheets.
 - Dispatchers: the **load board** (create / assign / advance statuses),
   fleet roster, and the **watchdog** alert queue.
+- Auditors: a read-only **safety & compliance** view (`/safety`) with the
+  fleet board, open HOS flags, and a **one-click compliance packet** — every
+  drawn log sheet as a single PDF (`/api/export/logs.pdf`).
 - Trips persist to Postgres with per-day logs; every status change is
   **audited per user** (`TripEvent`).
 - The **HOS watchdog** (`manage.py watch_hos`, run hourly on Render): a
   planning guardrail that projects each driver's position from their declared
-  cycle + latest live load and raises alerts for 11 / 14 / 70 / over-hours.
+  cycle + latest live load and raises alerts for 11 / 14 / 70 / over-hours,
+  debounced so a frequent cron can't spam the same fire.
+- **OpenAPI**: interactive schema at `/api/schema/`, Swagger UI at `/api/docs/`.
 - Django admin (`/admin/`) for users, drivers, vehicles, trips, alerts, events.
 
 **Planner core** (unchanged strength)
@@ -86,8 +91,10 @@ python manage.py seed_demo      # demo users, password spotter123
 python manage.py runserver 0.0.0.0:8000
 ```
 
-Demo accounts: `dispatch` (dispatcher), `danton` / `bmiles` (drivers),
-`admin` (superuser) — all password `spotter123`.
+Demo accounts: `dispatch` (dispatcher), `auditor` (auditor), `danton` /
+`bmiles` (drivers), `admin` (superuser) — all password `spotter123`. Full
+roster (incl. other dispatchers and drivers on varied cycle balances) in
+`users.txt`.
 
 The stateless calculator (public):
 
@@ -112,7 +119,8 @@ curl -X POST http://localhost:8000/api/trips/plan/ \
 API surface (all under `/api/`): `auth/login|refresh|logout`, `me`,
 `drivers` (+ `drivers/create`), `vehicles`, `trips` (+ `trips/plan`),
 `trips/<id>` (PATCH = guarded status transitions), `alerts`,
-`alerts/<id>/resolve`, plus the public `trip/plan` and `geocode/suggest`.
+`alerts/<id>/resolve`, `export/logs.pdf` (compliance packet), plus the public
+`trip/plan` and `geocode/suggest`, and `schema/` + `docs/` (OpenAPI/Swagger).
 
 Watchdog test:
 
@@ -120,8 +128,8 @@ Watchdog test:
 python manage.py watch_hos
 ```
 
-Run the test suite (**35 tests**: engine rules, API, auth, permissions, trip
-persistence, watchdog, audit events):
+Run the test suite (**46 tests**: engine rules, API, auth, permissions, trip
+persistence, watchdog + debounce, audit events, auditor read-only, PDF export):
 
 ```bash
 python manage.py test tripplanner

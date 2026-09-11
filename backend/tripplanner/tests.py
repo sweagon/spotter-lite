@@ -12,6 +12,7 @@ from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from .hos_engine import (
@@ -574,3 +575,151 @@ class WatchdogTests(TestCase):
         event = trip.events.first()
         self.assertEqual(event.to_status, "assigned")
         self.assertEqual(event.user_id, self.disp.id)
+
+    def test_debounce_window_blocks_refire(self):
+        # breach trip fires, clear the alerts, then run again immediately:
+        # the WATCH_HOS_FIRE_MINUTES window must prevent re-firing.
+        self._trip()
+        from django.core.management import call_command
+        call_command("watch_hos", verbosity=0)
+        self.assertEqual(Alert.objects.filter(driver=self.driver).count(), 4)
+        Alert.objects.update(cleared=True, cleared_at=timezone.now())
+        call_command("watch_hos", verbosity=0)
+        self.assertEqual(Alert.objects.filter(driver=self.driver).count(), 4)
+
+    def test_debounce_expires_after_window(self):
+        self._trip()
+        from django.core.management import call_command
+        call_command("watch_hos", verbosity=0)
+        self.assertEqual(Alert.objects.filter(driver=self.driver).count(), 4)
+        Alert.objects.update(cleared=True, cleared_at=timezone.now())
+        # move every alert outside the debounce window so it can fire again
+        hour_ago = timezone.now() - timedelta(hours=2)
+        Alert.objects.update(triggered_at=hour_ago)
+        call_command("watch_hos", verbosity=0)
+        self.assertGreater(Alert.objects.filter(driver=self.driver).count(), 4)
+
+
+class AuditorReadOnlyTests(TestCase):
+    """the auditor role: full read-only fleet visibility, zero writes."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.disp = User.objects.create_user(username="dex", password="pw", role="dispatcher")
+        self.auditor = User.objects.create_user(
+            username="audit", password="pw", role="auditor"
+        )
+        self.driver_user = User.objects.create_user(
+            username="pat", password="pw", role="driver"
+        )
+        self.driver = Driver.objects.create(user=self.driver_user)
+        self.trip = Trip.objects.create(
+            created_by=self.disp,
+            driver=self.driver,
+            current_location="A",
+            pickup_location="A",
+            dropoff_location="B",
+        )
+        self.alert = Alert.objects.create(
+            driver=self.driver,
+            rule="drive_11",
+            detail="projected breach",
+            triggered_at=timezone.now(),
+        )
+
+    def test_auditor_reads_fleet(self):
+        self.client.force_authenticate(self.auditor)
+        self.assertEqual(self.client.get("/api/trips/").status_code, 200)
+        self.assertEqual(self.client.get("/api/drivers/").status_code, 200)
+        self.assertEqual(self.client.get("/api/vehicles/").status_code, 200)
+        self.assertEqual(self.client.get("/api/alerts/").status_code, 200)
+        resp = self.client.get(f"/api/trips/{self.trip.id}/")
+        self.assertEqual(resp.status_code, 200)
+
+    def test_auditor_cannot_mutate(self):
+        self.client.force_authenticate(self.auditor)
+        # status transition
+        self.assertEqual(
+            self.client.patch(f"/api/trips/{self.trip.id}/", {"status": "assigned"}, format="json").status_code,
+            403,
+        )
+        # resolve an alert
+        self.assertEqual(
+            self.client.post(f"/api/alerts/{self.alert.id}/resolve/", {}, format="json").status_code,
+            403,
+        )
+        # create a driver
+        self.assertEqual(
+            self.client.post("/api/drivers/create/",
+                             {"username": "x", "password": "pw"},
+                             format="json").status_code,
+            403,
+        )
+        # draft a trip
+        self.assertEqual(
+            self.client.post("/api/trips/", {
+                "current_location": "A", "pickup_location": "A", "dropoff_location": "B",
+            }, format="json").status_code,
+            403,
+        )
+
+
+class ExportLogsPDFTests(TestCase):
+    """the compliance packet endpoint returns a real PDF, role-scoped."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.disp = User.objects.create_user(username="dex", password="pw", role="dispatcher")
+        self.audit = User.objects.create_user(username="audit", password="pw", role="auditor")
+        self.a_user = User.objects.create_user(username="alice", password="pw", role="driver")
+        self.b_user = User.objects.create_user(username="bob", password="pw", role="driver")
+        self.drive_a = Driver.objects.create(user=self.a_user)
+        self.drive_b = Driver.objects.create(user=self.b_user)
+        self.trip_a = Trip.objects.create(
+            created_by=self.disp, driver=self.drive_a,
+            current_location="A", pickup_location="A", dropoff_location="B",
+            distance_miles=240, driving_minutes=240,
+        )
+        DailyLog.objects.create(
+            trip=self.trip_a, day_number=1, date="2026-09-01",
+            segments=[{"status": "driving", "start_time": "08:00", "end_time": "12:00",
+                       "location": "A", "name": "en route"}],
+            totals={"driving": 4.0, "off_duty": 8.0,
+                    "on_duty_not_driving": 12.0, "sleeper_berth": 0.0},
+        )
+        self.trip_b = Trip.objects.create(
+            created_by=self.disp, driver=self.drive_b,
+            current_location="A", pickup_location="A", dropoff_location="C",
+        )
+
+    def _export(self, **params):
+        return self.client.get("/api/export/logs.pdf", params)
+
+    def test_dispatcher_export_is_pdf(self):
+        self.client.force_authenticate(self.disp)
+        resp = self._export(driver_id=self.drive_a.id)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp["Content-Type"], "application/pdf")
+        self.assertTrue(resp.content.startswith(b"%PDF"))
+
+    def test_auditor_can_export(self):
+        self.client.force_authenticate(self.audit)
+        resp = self._export(driver_id=self.drive_a.id)
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.content.startswith(b"%PDF"))
+
+    def test_driver_exports_only_own_logs(self):
+        self.client.force_authenticate(self.a_user)
+        # asking for someone else's driver_id is ignored -> returns own only
+        resp = self._export(driver_id=self.drive_b.id)
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.content.startswith(b"%PDF"))
+
+    def test_driver_export_with_no_trips_is_404(self):
+        self.client.force_authenticate(self.b_user)
+        resp = self._export()
+        self.assertEqual(resp.status_code, 404)
+
+    def test_unauthenticated_export_is_401(self):
+        resp = self._export()
+        self.assertEqual(resp.status_code, 401)

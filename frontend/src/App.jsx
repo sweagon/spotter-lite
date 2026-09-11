@@ -6,19 +6,28 @@ import LoginView from "./views/LoginView";
 import DriverHome from "./views/DriverHome";
 import DispatchBoard from "./views/DispatchBoard";
 import ExplorePlanner from "./views/ExplorePlanner";
+import SafetyView from "./views/SafetyView";
 
 function RequireAuth() {
   const { user } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
-  if (user.role === "Dispatcher") return <Navigate to="/dispatch" replace />;
+  if (user.role === "Dispatcher" || user.role === "Admin") return <Navigate to="/dispatch" replace />;
+  if (user.role === "Auditor") return <Navigate to="/safety" replace />;
   return <DriverHome />;
 }
 
 function RequireDispatcher() {
   const { user } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
-  if (user.role !== "Dispatcher") return <Navigate to="/" replace />;
+  if (user.role !== "Dispatcher" && user.role !== "Admin") return <Navigate to="/" replace />;
   return <DispatchBoard />;
+}
+
+function RequireAuditor() {
+  const { user } = useAuth();
+  if (!user) return <Navigate to="/login" replace />;
+  if (user.role !== "Auditor") return <Navigate to="/" replace />;
+  return <SafetyView />;
 }
 
 function Shell() {
@@ -38,10 +47,18 @@ function Shell() {
         <div className="topbar-brand">
           <LogoMark />
         </div>
-        <span className="topbar-label">{user.role === "Dispatcher" ? "dispatch board" : "driver home"}</span>
+        <span className="topbar-label">
+          {user.role === "Dispatcher" && "dispatch board"}
+          {user.role === "Admin" && "dispatch · admin"}
+          {user.role === "Auditor" && "safety & compliance"}
+          {user.role === "Driver" && "driver cab"}
+        </span>
         <div className="topbar-right">
           {user.role === "Dispatcher" && (
             <Link className="topbar-link" to="/dispatch">board</Link>
+          )}
+          {user.role === "Auditor" && (
+            <Link className="topbar-link" to="/safety">safety</Link>
           )}
           <Link className="topbar-link" to="/">home</Link>
           <span className="topbar-user num">{user.first_name || user.username}</span>
@@ -63,6 +80,7 @@ export default function App() {
           <Route element={<Shell />}>
             <Route path="/" element={<RequireAuth />} />
             <Route path="/dispatch" element={<RequireDispatcher />} />
+            <Route path="/safety" element={<RequireAuditor />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

@@ -7,6 +7,7 @@ from .views import (
     CreateDriverView,
     DriverDetailView,
     DriverListView,
+    ExportLogsPDFView,
     HealthView,
     LoginView,
     LogoutView,
@@ -42,4 +43,6 @@ urlpatterns = [
 
     path("alerts/", AlertListView.as_view(), name="alert-list"),
     path("alerts/<int:pk>/resolve/", AlertResolveView.as_view(), name="alert-resolve"),
+
+    path("export/logs.pdf", ExportLogsPDFView.as_view(), name="export-logs-pdf"),
 ]

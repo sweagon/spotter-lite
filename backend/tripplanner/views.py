@@ -1,9 +1,18 @@
+import logging
+
 from django.contrib.auth import get_user_model
+from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework import status
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
+
+_q_param = OpenApiParameter(
+    name="q", type=str, description="location search fragment (>=3 characters)"
+)
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
@@ -11,6 +20,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 
 from .models import Alert, DailyLog, Driver, Trip, TripEvent, Vehicle
 from .permissions import IsDispatcher
+from .pdf_export import build_logs_pdf
 from .routing import geocode, get_route, suggest
 from .hos_engine import plan_trip, slice_into_days, compute_daily_totals
 from .serializers import (
@@ -24,6 +34,8 @@ from .serializers import (
 
 User = get_user_model()
 
+logger = logging.getLogger("tripplanner")
+
 
 class HealthView(APIView):
     """GET /api/health/ - liveness, plus a DB ping so Render knows the
@@ -31,6 +43,10 @@ class HealthView(APIView):
 
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        responses={200: OpenApiTypes.OBJECT},
+        description="liveness + DB ping",
+    )
     def get(self, request):
         try:
             from django.db import connection
@@ -53,6 +69,11 @@ class SuggestView(APIView):
     permission_classes = [AllowAny]
     throttle_scope = "suggest"
 
+    @extend_schema(
+        parameters=[_q_param],
+        responses={200: OpenApiTypes.OBJECT},
+        description="geocoder autocomplete (lenient, never fails the page)",
+    )
     def get(self, request):
         q = (request.query_params.get("q") or "").strip()
         if len(q) < 3:
@@ -145,6 +166,11 @@ class TripPlanView(APIView):
     permission_classes = [AllowAny]
     throttle_scope = "plan"
 
+    @extend_schema(
+        request=TripPlanRequestSerializer,
+        responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT, 503: OpenApiTypes.OBJECT},
+        description="public stateless planner: locations + cycle balance -> route + daily logs",
+    )
     def post(self, request):
         serializer = TripPlanRequestSerializer(data=request.data)
         if not serializer.is_valid():
@@ -176,10 +202,23 @@ class LoginView(TokenObtainPairView):
     permission_classes = [AllowAny]
     serializer_class = _LoginSerializer
 
+    @extend_schema(
+        request=_LoginSerializer,
+        responses={200: OpenApiTypes.OBJECT},
+        description="username/password -> JWT pair + user summary",
+    )
+    def post(self, request, *args, **kwargs):
+        return super().post(request, *args, **kwargs)
+
 
 class LogoutView(APIView):
     """POST /api/auth/logout/ {refresh} - blacklist the refresh token."""
 
+    @extend_schema(
+        request=OpenApiTypes.OBJECT,
+        responses={200: OpenApiTypes.OBJECT},
+        description="blacklist a refresh token",
+    )
     def post(self, request):
         refresh = request.data.get("refresh")
         if not refresh:
@@ -201,6 +240,10 @@ class MeView(APIView):
     """GET /api/me/ - current user + (for drivers) their fleet profile +
     open alerts. what the SPA needs to paint the right home screen."""
 
+    @extend_schema(
+        responses={200: UserSummarySerializer},
+        description="current user summary (+ driver profile/alerts when applicable)",
+    )
     def get(self, request):
         data = UserSummarySerializer(request.user).data
         profile = getattr(request.user, "driver_profile", None)
@@ -223,17 +266,33 @@ class MeView(APIView):
 # ---------------------------------------------------------------------------
 
 class DriverListView(APIView):
-    permission_classes = [IsDispatcher]
+    # read-side fleet board: the handler gates by can_manage_fleet so
+    # auditor reads too; mutations stay dispatcher-only elsewhere.
+    permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        responses={200: DriverSerializer(many=True)},
+        description="active drivers (fleet board)",
+    )
     def get(self, request):
+        if not request.user.can_manage_fleet:
+            return Response({"error": "fleet access denied"},
+                            status=status.HTTP_403_FORBIDDEN)
         qs = Driver.objects.select_related("user", "vehicle").filter(active=True)
         return Response(DriverSerializer(qs, many=True).data)
 
 
 class DriverDetailView(APIView):
-    permission_classes = [IsDispatcher]
+    permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        responses={200: DriverSerializer, 404: OpenApiTypes.OBJECT},
+        description="one driver's profile",
+    )
     def get(self, request, pk):
+        if not request.user.can_manage_fleet:
+            return Response({"error": "fleet access denied"},
+                            status=status.HTTP_403_FORBIDDEN)
         try:
             driver = Driver.objects.select_related("user", "vehicle").get(pk=pk)
         except Driver.DoesNotExist:
@@ -242,9 +301,16 @@ class DriverDetailView(APIView):
 
 
 class VehicleListView(APIView):
-    permission_classes = [IsDispatcher]
+    permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        responses={200: VehicleSerializer(many=True)},
+        description="active vehicles",
+    )
     def get(self, request):
+        if not request.user.can_manage_fleet:
+            return Response({"error": "fleet access denied"},
+                            status=status.HTTP_403_FORBIDDEN)
         qs = Vehicle.objects.filter(active=True)
         return Response(VehicleSerializer(qs, many=True).data)
 
@@ -255,6 +321,11 @@ class CreateDriverView(APIView):
 
     permission_classes = [IsDispatcher]
 
+    @extend_schema(
+        request=OpenApiTypes.OBJECT,
+        responses={201: DriverSerializer, 400: OpenApiTypes.OBJECT, 409: OpenApiTypes.OBJECT},
+        description="dispatcher creates a driver login + HOS profile",
+    )
     def post(self, request):
         username = (request.data.get("username") or "").strip()
         password = request.data.get("password") or ""
@@ -295,7 +366,7 @@ class CreateDriverView(APIView):
 
 def _visible_queryset(user, pk=None):
     qs = Trip.objects.select_related("driver__user", "vehicle", "created_by")
-    if not user.is_dispatcher:
+    if not user.can_manage_fleet:
         profile = getattr(user, "driver_profile", None)
         return qs.filter(driver=profile) if profile else qs.none()
     return qs
@@ -315,6 +386,14 @@ class TripListView(APIView):
     """GET /api/trips/?status=&driver= - fleet trip board.
     drivers see only their own; only dispatchers create trips."""
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(name="status", type=str),
+            OpenApiParameter(name="driver", type=str),
+        ],
+        responses={200: TripSerializer(many=True)},
+        description="trip board (drivers see own trips only)",
+    )
     def get(self, request):
         qs = _visible_queryset(request.user)
         status_filter = request.query_params.get("status")
@@ -325,8 +404,12 @@ class TripListView(APIView):
             qs = qs.filter(driver__user__username=driver)
         return Response(TripSerializer(qs, many=True).data)
 
+    @extend_schema(
+        request=OpenApiTypes.OBJECT,
+        responses={201: TripSerializer, 400: OpenApiTypes.OBJECT, 403: OpenApiTypes.OBJECT},
+        description="dispatcher drafts a trip from locations alone",
+    )
     def post(self, request):
-        """create a draft trip from locations alone (planned later)."""
         if not request.user.is_dispatcher:
             return Response({"error": "dispatchers only"},
                             status=status.HTTP_403_FORBIDDEN)
@@ -341,19 +424,28 @@ class TripListView(APIView):
 
 
 class TripDetailView(APIView):
+    @extend_schema(
+        responses={200: TripSerializer, 404: OpenApiTypes.OBJECT},
+        description="one trip (drivers read own trips only)",
+    )
     def get(self, request, pk):
         try:
             trip = Trip.objects.select_related("driver__user", "vehicle", "created_by").get(pk=pk)
         except Trip.DoesNotExist:
             return Response({"error": "no such trip"}, status=status.HTTP_404_NOT_FOUND)
-        # drivers may read their own trips only; dispatchers any
-        if not request.user.is_dispatcher:
+        # drivers may read their own trips only; dispatchers/auditor any
+        if not request.user.can_manage_fleet:
             profile = getattr(request.user, "driver_profile", None)
             if not profile or trip.driver_id != profile.id:
                 # hide existence: same shape as a missing trip
                 return Response({"error": "no such trip"}, status=status.HTTP_404_NOT_FOUND)
         return Response(TripSerializer(trip).data)
 
+    @extend_schema(
+        request=OpenApiTypes.OBJECT,
+        responses={200: TripSerializer, 400: OpenApiTypes.OBJECT, 403: OpenApiTypes.OBJECT},
+        description="dispatcher advances status / reassigns driver+vehicle",
+    )
     def patch(self, request, pk):
         """status transitions + assignment changes, guarded so a load can't
         jump out of order (assigned -> delivered without driving it)."""
@@ -434,6 +526,11 @@ class TripPlanPersistView(APIView):
 
     throttle_scope = "plan"
 
+    @extend_schema(
+        request=TripPlanRequestSerializer,
+        responses={201: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT, 403: OpenApiTypes.OBJECT, 503: OpenApiTypes.OBJECT},
+        description="plan + persist a trip with its daily logs",
+    )
     def post(self, request):
         serializer = TripPlanRequestSerializer(data=request.data)
         if not serializer.is_valid():
@@ -510,11 +607,15 @@ class TripPlanPersistView(APIView):
 
 class AlertListView(APIView):
     """GET /api/alerts/ - open watchdog alerts. dispatchers see the fleet
-    queue; drivers see only their own.""" 
+    queue; drivers see only their own."""
 
+    @extend_schema(
+        responses={200: AlertSerializer(many=True)},
+        description="open HOS watchdog alerts (fleet queue for staff)",
+    )
     def get(self, request):
         qs = Alert.objects.select_related("driver__user").filter(cleared=False)
-        if not request.user.is_dispatcher:
+        if not request.user.can_manage_fleet:
             profile = getattr(request.user, "driver_profile", None)
             qs = qs.filter(driver=profile) if profile else qs.none()
         return Response(AlertSerializer(qs[:50], many=True).data)
@@ -525,6 +626,11 @@ class AlertResolveView(APIView):
 
     permission_classes = [IsDispatcher]
 
+    @extend_schema(
+        request=None,
+        responses={200: AlertSerializer, 404: OpenApiTypes.OBJECT},
+        description="dispatcher closes an alert",
+    )
     def post(self, request, pk):
         try:
             alert = Alert.objects.get(pk=pk)
@@ -536,6 +642,81 @@ class AlertResolveView(APIView):
         alert.cleared_at = timezone.now()
         alert.save(update_fields=["cleared", "cleared_by", "cleared_at"])
         return Response(AlertSerializer(alert).data)
+
+
+class ExportLogsPDFView(APIView):
+    """
+    GET /api/export/logs.pdf?driver_id=&start=&end=
+
+    Compliance packet: every DailyLog sheet for the selected trips as one
+    PDF (24x4 shaded grid, line-4 totals + 24.00 checksum, remarks, recap).
+    Dispatchers/admins/auditors may export any driver; a driver may export
+    only their own runs.
+    """
+
+    # no permission_classes override: default IsAuthenticated applies, and
+    # role access (fleet-wide vs driver-own) is enforced inside the handler.
+    throttle_scope = "export"
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(name="driver_id", type=int),
+            OpenApiParameter(name="start", type=str),
+            OpenApiParameter(name="end", type=str),
+        ],
+        responses={200: ("application/pdf", OpenApiTypes.BINARY), 404: OpenApiTypes.OBJECT},
+        description="compliance packet PDF (24x4 HOS grids + totals + remarks)",
+    )
+    def get(self, request):
+        qs = Trip.objects.select_related("driver__user", "vehicle").prefetch_related(
+            "daily_logs"
+        )
+
+        driver_filter = request.query_params.get("driver_id")
+        if request.user.can_manage_fleet:
+            if driver_filter:
+                qs = qs.filter(driver_id=driver_filter)
+        else:
+            # driver role: locked to their own profile regardless of params
+            profile = getattr(request.user, "driver_profile", None)
+            if profile is None:
+                return Response({"error": "no driver profile for this user"},
+                                status=status.HTTP_403_FORBIDDEN)
+            qs = qs.filter(driver=profile)
+
+        start = request.query_params.get("start")
+        if start:
+            qs = qs.filter(created_at__date__gte=start)
+        end = request.query_params.get("end")
+        if end:
+            qs = qs.filter(created_at__date__lte=end)
+
+        trips = list(qs.order_by("created_at")[:50])
+        # a compliance packet must contain at least one drawn log sheet:
+        # trips with no DailyLog rows yield nothing worth exporting.
+        log_trip_ids = set(
+            DailyLog.objects.filter(trip_id__in=[t.id for t in trips])
+            .values_list("trip_id", flat=True)
+        )
+        trips = [t for t in trips if t.id in log_trip_ids]
+        if not trips:
+            return Response({"error": "no trips match that filter"},
+                            status=status.HTTP_404_NOT_FOUND)
+
+        logger.info(
+            "export_logs_pdf user=%s role=%s trips=%d",
+            request.user.username,
+            request.user.role,
+            len(trips),
+        )
+        groups = [(t, list(t.daily_logs.all().order_by("day_number"))) for t in trips]
+        pdf = build_logs_pdf(groups)
+        filename = f"spotter_hos_{timezone.now():%Y%m%d_%H%M}.pdf"
+        return HttpResponse(
+            pdf,
+            content_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
 
 
 def _extract_stops(segments):

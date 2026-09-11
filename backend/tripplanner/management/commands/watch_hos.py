@@ -16,8 +16,14 @@ tier):
 
 alerts are idempotent: an open alert for the same driver+rule is not re-fired,
 and a cleared alert can fire again if the condition is still true next time.
+the WATCH_HOS_FIRE_MINUTES setting (env, default 20) adds a debounce window:
+no (driver, rule) fires twice inside one window even across clear/refire, so
+the job can be scheduled every few minutes in production without spamming.
 """
 
+import logging
+
+from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.db.models import Prefetch
 from django.utils import timezone
@@ -30,14 +36,21 @@ CYCLE_LIMIT = 70.0
 # how close to a limit counts as "about to be" (planning intent, not a rule)
 WARN_MARGIN = 2.0
 
+logger = logging.getLogger("tripplanner.watch_hos")
+
 
 class Command(BaseCommand):
     help = "flag drivers projected to breach HOS planning guardrails"
 
     def handle(self, *args, **options):
         fired = 0
-        open_cases = set(
-            Alert.objects.filter(cleared=False)
+        window = getattr(settings, "WATCH_HOS_FIRE_MINUTES", 20)
+        since = timezone.now() - timezone.timedelta(minutes=window)
+
+        # a (driver, rule) is "quiet" if any alert — open or recently cleared —
+        # exists inside the debounce window.
+        recent_cases = set(
+            Alert.objects.filter(triggered_at__gte=since)
             .values_list("driver_id", "rule")
         )
 
@@ -95,16 +108,20 @@ class Command(BaseCommand):
                 hits.append(("over_hours", f"declared {driver.cycle_used:.1f}h + planned {drive_pos:.1f}h drive"))
 
             for rule, msg in hits:
-                if (driver.id, rule) in open_cases:
-                    continue  # already flagged, don't spam
+                if (driver.id, rule) in recent_cases:
+                    continue  # inside the debounce window, don't re-fire
                 Alert.objects.create(
                     driver=driver,
                     rule=rule,
                     detail=" ".join(detail) + f" | {msg}",
                     triggered_at=timezone.now(),
                 )
-                open_cases.add((driver.id, rule))
+                recent_cases.add((driver.id, rule))
                 fired += 1
-                self.stdout.write(f"[watch_hos] {driver.user.username}: {rule} — {msg}")
+                logger.warning(
+                    "watch_hos alert driver=%s rule=%s window_min=%d fired=%s :: %s",
+                    driver.user.username, rule, window, msg, "|".join(detail),
+                )
 
+        logger.info("watch_hos run driver_count=%d fired=%d", drivers.count(), fired)
         self.stdout.write(self.style.SUCCESS(f"[watch_hos] raised {fired} new alert(s)"))

@@ -48,6 +48,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
     'rest_framework_simplejwt.token_blacklist',
+    'drf_spectacular',
     'tripplanner',
 ]
 
@@ -170,9 +171,13 @@ REST_FRAMEWORK = {
         # tabs can't burn the fleet's quota.
         'plan': '20/hour',
         'suggest': '60/min',
+        # compliance packet exports are cheap (reportlab) but can pile
+        # up fast on a fleet board; keep them bounded per user.
+        'export': '30/min',
     },
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.LimitOffsetPagination',
     'PAGE_SIZE': 50,
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
 
 # auth token lifetimes — access token rides in the SPA's memory, refresh
@@ -183,6 +188,51 @@ SIMPLE_JWT = {
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
+}
+
+# watchdog debounce: how many minutes must pass before a new alert for the
+# same (driver, rule) can fire again, even after the previous one was
+# cleared. the free-tier Render cron runs hourly (default handles that
+# fine); a self-hosted deployment can schedule it every few minutes and
+# bump this down without spamming the alert queue.
+WATCH_HOS_FIRE_MINUTES = int(os.environ.get('WATCH_HOS_FIRE_MINUTES', '20'))
+
+# OpenAPI schema (drf-spectacular) — served at /api/schema/ + /api/docs/.
+# auth-marker so generated clients know every endpoint except login/explore
+# expects a JWT bearer token.
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Spotter HOS Trip Planner API',
+    'DESCRIPTION': (
+        'Single-company trip planning + HOS guardrail tool. '
+        'Authenticate with a JWT Bearer token; roles gate the surface '
+        '(driver sees own trips, dispatcher/admin manage the fleet, '
+        'auditor reads only).'
+    ),
+    'VERSION': '0.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'SECURITY': [{'Bearer': []}],
+}
+
+# structured logging: local dev keeps humane console lines, production
+# (env VAR SPOTTER_JSON_LOGS=true) emits JSON lines for the platform logger.
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'console': {'format': '[%(asctime)s] %(levelname)s %(name)s %(message)s'},
+        'json': {
+            'format': '{"ts":"%(asctime)s","level":"%(levelname)s",'
+                      '"logger":"%(name)s","msg":"%(message)s"}'
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'json' if os.environ.get('SPOTTER_JSON_LOGS', '').lower() == 'true'
+                         else 'console',
+        },
+    },
+    'root': {'handlers': ['console'], 'level': os.environ.get('DJANGO_LOG_LEVEL', 'INFO')},
 }
 
 

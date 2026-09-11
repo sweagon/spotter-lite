@@ -24,15 +24,17 @@
 - **`/api/suggest/`** — location autocomplete (Nominatim), with fallback to free-text.
 
 ### 3. Fleet & access
-- Custom `User` with **roles admin / dispatcher / driver**; JWT login (rotated refresh tokens).
+- Custom `User` with **roles admin / dispatcher / driver / auditor**; JWT login (rotated refresh tokens).
 - **Drivers**: see only their own trips (404-hiding), their HOS position, own-vehicle-only planning, open watchdog alerts.
-- **Dispatchers**: full fleet board — drivers, vehicles, all trips with **guarded status transitions** (`assigned → en route → stopped → delivered`, cancel) each recorded as a **`TripEvent` audit row** (who/when).
+- **Dispatchers**: full fleet board — drivers, vehicles, all trips with **guarded status transitions** (`assigned → en route → stopped → delivered`, cancel) each recorded as a **`TripEvent`** audit row (who/when).
+- **Auditors**: read-only `/safety` view — fleet posture KPIs, open HOS flags, drivers table, live load board, and a **one-click compliance packet** (`/api/export/logs.pdf`, ScopedRateThrottle `export`).
 - **Admin**: Django admin for every model.
-- Route guards in the SPA (`/login`, `/`, `/dispatch`, `/explore`); tokens in localStorage (documented trade-off).
-- Demo seed: 10 test users (2 admin / 3 dispatcher / 5 drivers) on trucks D-1…D-5 with varied cycle balances — documented in `users.txt` (password `spotter123`).
+- Route guards in the SPA (`/login`, `/`, `/dispatch`, `/safety`, `/explore`); tokens in localStorage (documented trade-off).
+- Demo seed: 11 test users (2 admin / 3 dispatcher / 1 auditor / 5 drivers) on trucks D-1…D-5 with varied cycle balances — documented in `users.txt` (password `spotter123`).
 
 ### 4. HOS watchdog ("tracker agent")
 - `manage.py watch_hos` — hourly planning guardrail projecting each driver's position from declared cycle + latest live plan; idempotent alerts for **drive-11 / duty-14 / cycle-70 / over-hours**, resolveable from the board; honest framing (planning-derived hours, not an ELD record) with an hourly cron in `render.yaml`.
+- `WATCH_HOS_FIRE_MINUTES` (env, default 20) adds a debounce window so a frequent cron schedule can't re-fire the same (driver, rule) spuriously.
 
 ### 5. Daily log sheets (the compliance output)
 - Faithful FMCSA 395.8 grid: **4 fixed rows** (off duty / sleeper / driving / on-duty-not-driving) over a 0–1440 min axis; **25 full-height hour lines** labeled `midnight…noon…midnight`; **3 quarter-hour ticks per hour per row**, rows 1–2 hanging down / rows 3–4 rising up, `:30` longer than `:15/:45`.
@@ -47,8 +49,11 @@
 - **Full-width layout** (no content cap), brand tokens with contrast-derived shades, colorblind-friendly dash patterns on the log.
 
 ### 7. Ops & testing
-- **Postgres** via `DATABASE_URL` (sqlite fallback), fail-closed CORS, throttling (`plan` 20/hr, `suggest` 60/min), `/api/health/` DB ping, whitenoise static serving.
-- **37 Django tests** (engine + auth + permissions + persistence + watchdog + audit) and **8 frontend geometry spec tests** all passing; 20-point Playwright browser suite + live dispatcher/driver E2E with zero JS errors.
+- **Postgres** via `DATABASE_URL` (sqlite fallback), fail-closed CORS, throttling (`plan` 20/hr, `suggest` 60/min, `export` 30/min), `/api/health/` DB ping, whitenoise static serving.
+- **OpenAPI**: `drf-spectacular` schema at `/api/schema/` + Swagger UI `/api/docs/` (0 schema errors; serializer `SerializerMethodField` type-hint warnings are cosmetic).
+- **PDF compliance packet** (`backend/tripplanner/pdf_export.py`): reportlab-built, role-scoped — dispatchers/admins/auditors any driver, drivers only their own runs; dips to 404 when nothing drawn.
+- **46 Django tests** (engine + auth + permissions + persistence + watchdog + debounce + audit + auditor read-only + PDF export) and **8 frontend geometry spec tests** all passing; 20-point Playwright browser suite + live dispatcher/driver E2E with zero JS errors.
+- **CI** (`.github/workflows/ci.yml`): backend tests + OpenAPI composition check (sqlite), frontend `npm ci` + tests + lint + build on every push/PR.
 
 ## Known limits (by design)
 - Free OSRM/Nominatim (flaky under load), GPS/deadhead/load-tracking deferred, hours are **planning-derived, not ELD-certified**, single-company only.

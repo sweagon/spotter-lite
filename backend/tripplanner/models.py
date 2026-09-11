@@ -9,6 +9,9 @@ class User(AbstractUser):
         ("driver", "Driver"),
         ("dispatcher", "Dispatcher"),
         ("admin", "Admin"),
+        # read-only safety/audit role: can inspect the fleet board, saved
+        # trips, alerts and export compliance PDFs — never mutates.
+        ("auditor", "Auditor"),
     )
     role = models.CharField(
         max_length=20,
@@ -23,11 +26,22 @@ class User(AbstractUser):
 
     @property
     def is_dispatcher(self):
+        # mutations flow through this check, so auditor stays read-only.
         return self.role in ("dispatcher", "admin")
 
     @property
     def is_admin(self):
         return self.role == "admin"
+
+    @property
+    def is_auditor(self):
+        return self.role == "auditor"
+
+    @property
+    def can_manage_fleet(self):
+        # read-side fleet access (board, alerts, exports): dispatch staff
+        # and the read-only auditor can all see it; drivers cannot.
+        return self.role in ("dispatcher", "admin", "auditor")
 
 
 class Vehicle(models.Model):
@@ -109,6 +123,7 @@ class Trip(models.Model):
         null=True,
         blank=True,
         related_name="trips",
+        db_index=True,
     )
     vehicle = models.ForeignKey(
         "Vehicle",
@@ -116,6 +131,7 @@ class Trip(models.Model):
         null=True,
         blank=True,
         related_name="trips",
+        db_index=True,
     )
 
     current_location = models.CharField(max_length=200)
@@ -123,7 +139,7 @@ class Trip(models.Model):
     dropoff_location = models.CharField(max_length=200)
 
     status = models.CharField(
-        max_length=20, choices=STATUS_CHOICES, default="draft"
+        max_length=20, choices=STATUS_CHOICES, default="draft", db_index=True
     )
 
     # snapshot of what the planner produced at plan time
@@ -140,7 +156,7 @@ class Trip(models.Model):
     actual_delivery_at = models.DateTimeField(null=True, blank=True)
     actual_miles = models.PositiveIntegerField(null=True, blank=True)
 
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -173,13 +189,13 @@ class DailyLog(models.Model):
 class TripEvent(models.Model):
     """audit trail: who moved a load from one status to another, and when."""
 
-    trip = models.ForeignKey(Trip, on_delete=models.CASCADE, related_name="events")
+    trip = models.ForeignKey(Trip, on_delete=models.CASCADE, related_name="events", db_index=True)
     user = models.ForeignKey(
         "User", on_delete=models.PROTECT, related_name="trip_events"
     )
     from_status = models.CharField(max_length=20, blank=True, default="")
     to_status = models.CharField(max_length=20)
-    at = models.DateTimeField(auto_now_add=True)
+    at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
         ordering = ["at"]
@@ -198,11 +214,13 @@ class Alert(models.Model):
         ("over_hours", "Over hours"),
     )
     driver = models.ForeignKey(
-        "Driver", on_delete=models.CASCADE, related_name="alerts"
+        "Driver", on_delete=models.CASCADE, related_name="alerts", db_index=True
     )
-    rule = models.CharField(max_length=20, choices=RULE_CHOICES)
+    rule = models.CharField(
+        max_length=20, choices=RULE_CHOICES, db_index=True
+    )
     detail = models.CharField(max_length=255, blank=True, default="")
-    triggered_at = models.DateTimeField()
+    triggered_at = models.DateTimeField(db_index=True)
     cleared = models.BooleanField(default=False)
     cleared_by = models.ForeignKey(
         "User", on_delete=models.SET_NULL, null=True, blank=True
