@@ -4,6 +4,7 @@ import { API_BASE } from "../api";
 import PlannerForm from "../components/PlannerForm";
 import PlanResults from "../components/PlanResults";
 import LogoMark from "../components/LogoMark";
+import Board from "../components/Board";
 
 /** public, stateless planner — the original assessment demo. no login, no
  * persistence; the full tools live behind the org screens. */
@@ -47,33 +48,34 @@ export default function ExplorePlanner() {
         <Link className="topbar-login" to="/login">sign in →</Link>
       </header>
 
-      <div className="shell">
-        <aside className="rail">
-          <PlannerForm onSubmit={plan} submitting={busy} />
-          {error && (
-            <div className="panel-error" role="alert">
-              <p className="panel-error-title">Could not plan that trip.</p>
-              <p>{error}</p>
-            </div>
-          )}
-        </aside>
-
-        <main className="canvas">
-          {!result && !busy && (
-            <div className="empty">
-              <p className="empty-copy">enter a trip to generate the route and logs.</p>
-            </div>
-          )}
-          {busy && <p className="plan-busy">planning…</p>}
-          {result && (
-            <PlanResults
-              result={result}
-              pickup={routeLabels.pickup}
-              dropoff={routeLabels.dropoff}
-            />
-          )}
-        </main>
-      </div>
+      <Board className="planner-shell"
+        rail={
+          <>
+            <p className="rail-hello">public planner</p>
+            <PlannerForm onSubmit={plan} submitting={busy} />
+          </>
+        }
+      >
+        {error && (
+          <div className="panel-error" role="alert" style={{ marginBottom: 16 }}>
+            <p className="panel-error-title">Could not plan that trip.</p>
+            <p>{error}</p>
+          </div>
+        )}
+        {!result && !busy && (
+          <div className="empty">
+            <p className="empty-copy">enter a trip to generate the route and logs.</p>
+          </div>
+        )}
+        {busy && <p className="plan-busy">planning…</p>}
+        {result && (
+          <PlanResults
+            result={result}
+            pickup={routeLabels.pickup}
+            dropoff={routeLabels.dropoff}
+          />
+        )}
+      </Board>
     </div>
   );
 }

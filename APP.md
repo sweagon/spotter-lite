@@ -44,15 +44,17 @@
 - Geometry lives in a pure module validated by 8 `node --test` cases, including a reproduction of the FMCSA reference example (10 + 1.75 + 7.75 + 4.5 = 24.00).
 
 ### 6. Presentation layer
+- **Mobile-first UI overhaul**: custom design tokens (`index.css`) + a full component system in `App.css` — blur safe-area topbar, off-canvas drawer nav with backdrop scrim (hamburger on ≤899px, sticky sidebar ≥900px), big 44px touch targets, focus rings, shimmer skeletons, toast/error/empty states, badges, stacked card tables on ≤767px (via `data-label`), sticky trip action sheet on the cab, and a `prefers-reduced-motion` escape hatch.
 - Shared `PlannerForm`/`PlanResults` render routes, maps, and logs identically across public demo, driver self-plan, and dispatch assign.
 - **RouteMap** (Leaflet polyline, auto-fit, stop markers), **HoursCluster** gauges (driving/window/cycle peaks), **StopTimeline**, road-shield highway labels, geocoding autocomplete.
-- **Full-width layout** (no content cap), brand tokens with contrast-derived shades, colorblind-friendly dash patterns on the log.
+- **Login** upgraded with a feature hero, demo-account quick-fill chips, and password reveal.
+- **Full-bleed layout** (no content cap), brand tokens with contrast-derived shades, colorblind-friendly dash patterns on the log.
 
 ### 7. Ops & testing
 - **Postgres** via `DATABASE_URL` (sqlite fallback), fail-closed CORS, throttling (`plan` 20/hr, `suggest` 60/min, `export` 30/min), `/api/health/` DB ping, whitenoise static serving.
 - **OpenAPI**: `drf-spectacular` schema at `/api/schema/` + Swagger UI `/api/docs/` (0 schema errors; serializer `SerializerMethodField` type-hint warnings are cosmetic).
 - **PDF compliance packet** (`backend/tripplanner/pdf_export.py`): reportlab-built, role-scoped — dispatchers/admins/auditors any driver, drivers only their own runs; dips to 404 when nothing drawn.
-- **72 Django tests** (engine + auth + permissions + persistence + watchdog + debounce + audit + auditor read-only + PDF export + driver duty/self-PATCH/admin CRUD) and **8 frontend geometry spec tests** all passing; **10-point Playwright browser suite** (`frontend/e2e/smoke.mjs`) covering the driver cab, admin console CRUD, dispatcher fleet tabs, and auditor safety view with zero JS errors.
+- **72 Django tests** (engine + auth + permissions + persistence + watchdog + debounce + audit + auditor read-only + PDF export + driver duty/self-PATCH/admin CRUD) and **8 frontend geometry spec tests** all passing; **10-point desktop Playwright suite** (`frontend/e2e/smoke.mjs`) + **6-point mobile suite** (`frontend/e2e/mobile.mjs`, 390×844; set `PW_VIEWPORT=390x844` to run smoke at mobile too) covering the driver cab, drawer nav, admin console CRUD, dispatcher fleet tabs, auditor safety view, and login demo chips with zero JS errors.
 - **CI** (`.github/workflows/ci.yml`): backend tests + OpenAPI composition check (sqlite), frontend `npm ci` + tests + lint + build on every push/PR.
 
 ## Known limits (by design)

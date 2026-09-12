@@ -29,7 +29,8 @@ async function check(name, fn) {
 }
 
 const browser = await chromium.launch({ executablePath: executablePath() });
-const page = await browser.newPage({ viewport: { width: 1480, height: 1000 } });
+const vw = (process.env.PW_VIEWPORT || "1480x1000").split("x").map(Number);
+const page = await browser.newPage({ viewport: { width: vw[0], height: vw[1] } });
 const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
 page.on("console", (m) => {

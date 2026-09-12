@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { apiJson } from "../api";
 import PlannerForm from "../components/PlannerForm";
 import PlanResults from "../components/PlanResults";
+import Board from "../components/Board";
 
 const STATUSES = ["draft", "assigned", "en_route", "stopped", "delivered", "cancelled"];
 
@@ -101,40 +102,42 @@ export default function DispatchBoard() {
     : trips.filter((t) => t.status === statusFilter);
 
   return (
-    <div className="shell board-shell">
-      <aside className="rail">
-        <div className="rail-block">
-          <button className="btn-plan btn-plan-wide" onClick={() => setPlanning((p) => !p)}>
-            {planning ? "‹ close planner" : "+ plan new trip"}
-          </button>
-        </div>
-
-        <section className="alerts-mini">
-          <h3 className="rail-sub">watchdog</h3>
-          {alerts.length === 0 && <p className="trip-empty">no open flags.</p>}
-          {alerts.map((a) => (
-            <div key={a.id} className="alert-row">
-              <span className="alert-msg">
-                <strong>{a.driver_name}</strong> · {a.rule.replace("_", " ")}
-              </span>
-              <button className="btn-mini" onClick={() => resolveAlert(a.id)}>
-                clear
-              </button>
-            </div>
-          ))}
-        </section>
-
-        <section>
-          <h3 className="rail-sub">fleet</h3>
-          <div className="fleet-mini">
-            <p className="fleet-line"><span>drivers</span><span className="num">{drivers.length}</span></p>
-            <p className="fleet-line"><span>vehicles</span><span className="num">{vehicles.length}</span></p>
+    <Board
+      className="board-shell"
+      rail={
+        <>
+          <div className="rail-block">
+            <button className="btn-plan btn-plan-wide" onClick={() => setPlanning((p) => !p)}>
+              {planning ? "‹ close planner" : "+ plan new trip"}
+            </button>
           </div>
-        </section>
-      </aside>
 
-      <main className="canvas board-canvas">
-        {error && (
+          <section className="alerts-mini">
+            <h3 className="rail-sub">watchdog</h3>
+            {alerts.length === 0 && <p className="trip-empty">no open flags.</p>}
+            {alerts.map((a) => (
+              <div key={a.id} className="alert-row">
+                <span className="alert-msg">
+                  <strong>{a.driver_name}</strong> · {a.rule.replace("_", " ")}
+                </span>
+                <button className="btn-mini" onClick={() => resolveAlert(a.id)}>
+                  clear
+                </button>
+              </div>
+            ))}
+          </section>
+
+          <section>
+            <h3 className="rail-sub">fleet</h3>
+            <div className="fleet-mini">
+              <p className="fleet-line"><span>drivers</span><span className="num">{drivers.length}</span></p>
+              <p className="fleet-line"><span>vehicles</span><span className="num">{vehicles.length}</span></p>
+            </div>
+          </section>
+        </>
+      }
+    >
+      {error && (
           <div className="panel-error" role="alert">
             <p className="panel-error-title">Could not plan that trip.</p>
             <p>{error}</p>
@@ -165,11 +168,11 @@ export default function DispatchBoard() {
                 {drivers.map((d) => (
                   <tr key={d.id}>
                     <td className="num">{d.user.username}<br /><span className="muted">{d.user.first_name} {d.user.last_name}</span></td>
-                    <td>{d.user.role.toLowerCase()}</td>
-                    <td className="num">{d.vehicle_unit || "—"}</td>
-                    <td className="num">{d.cycle_used.toFixed(1)}h</td>
-                    <td className="num">{d.today_driving_hours.toFixed(1)}h</td>
-                    <td>{d.active ? "active" : "off"}</td>
+                    <td data-label="role">{d.user.role.toLowerCase()}</td>
+                    <td data-label="truck" className="num">{d.vehicle_unit || "—"}</td>
+                    <td data-label="cycle" className="num">{d.cycle_used.toFixed(1)}h</td>
+                    <td data-label="hours today" className="num">{d.today_driving_hours.toFixed(1)}h</td>
+                    <td data-label="status">{d.active ? "active" : "off"}</td>
                     <td className="table-actions">
                       <button className="btn-mini" onClick={() => resetCycle(d.id)}>reset cycle</button>
                     </td>
@@ -189,14 +192,13 @@ export default function DispatchBoard() {
                 </tr>
               </thead>
               <tbody>
-                {vehicles.map((v) => (
+{vehicles.map((v) => (
                   <tr key={v.id}>
                     <td className="num">{v.unit_no}</td>
-                    <td>{v.vehicle_type}</td>
-                    <td className="num">{v.vin || "—"}</td>
-                    <td className="num">{v.current_odometer ? v.current_odometer.toLocaleString() : "—"}</td>
-                    <td className="num">{v.assigned_driver || "—"}</td>
-                    <td>{v.active ? "active" : "off"}</td>
+                    <td data-label="type">{v.vehicle_type}</td>
+                    <td data-label="vin" className="mono">{v.vin}</td>
+                    <td data-label="odometer" className="num">{v.odometer ? v.odometer.toLocaleString() : "—"} mi</td>
+                    <td data-label="assigned to">{v.assigned_driver_name || "—"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -292,7 +294,6 @@ export default function DispatchBoard() {
             </div>
           </>
         )}
-      </main>
-    </div>
+    </Board>
   );
 }

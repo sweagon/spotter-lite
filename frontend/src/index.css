@@ -12,7 +12,9 @@
   --coral-400: #ff6b7d; /* lighter derived shade: brand coral fails 3:1 on petrol-800 */
   --teal-500: #008080;
   --teal-400: #00b3b3; /* lighter derived shade: brand teal fails 3:1 on petrol-800 */
+  --teal-300: #45d8d8; /* text-on-dark teal */
   --mint-200: #bcddde;
+  --mint-100: #e4f2f2; /* headings & high-emphasis text */
 
   /* extended neutrals + semantics */
   --ink-50: #eaf1f1;
@@ -22,38 +24,72 @@
   --alert-500: #e23b3b;
   --alert-400: #ff5a5a; /* lighter derived shade for fills on dark surfaces */
   --success-500: #7fc9c4;
+  --warning-400: #ffb86b;
 
   /* spacing scale (4px base) */
   --s-1: 4px;
   --s-2: 8px;
   --s-3: 12px;
   --s-4: 16px;
+  --s-5: 20px;
   --s-6: 24px;
   --s-8: 32px;
+  --s-10: 40px;
   --s-12: 48px;
   --s-16: 64px;
+  --s-20: 80px;
   --s-24: 96px;
 
-  /* type faces + scale (major third, 1.25) */
+  /* type faces */
   --font-ui: "Plus Jakarta Sans Variable", system-ui, sans-serif;
   --font-data: "IBM Plex Mono", ui-monospace, monospace;
+
+  /* type scale (major third, 1.25) */
   --text-xxs: 13px;
   --text-sm: 15px;
+  --text-md: 17px;
   --text-lg: 20px;
   --text-xl: 28px;
-  --data-lg: 24px;
+  --text-2xl: 34px;
   --data-sm: 14px;
+  --data-md: 18px;
+  --data-lg: 24px;
+  --data-xl: 32px;
 
   /* radius */
-  --r-lg: 8px;
-  --r-sm: 4px;
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-xl: 20px;
+  --r-pill: 999px;
 
   /* 1px hairlines at low opacity on dark surfaces */
   --hairline: rgba(18, 98, 111, 0.5);
+  --hairline-strong: rgba(70, 160, 175, 0.32);
+
+  /* elevation */
+  --shadow-1: 0 1px 2px rgba(2, 14, 19, 0.4), 0 1px 1px rgba(2, 14, 19, 0.3);
+  --shadow-2: 0 4px 16px rgba(2, 14, 19, 0.45), 0 2px 4px rgba(2, 14, 19, 0.35);
+  --shadow-3: 0 12px 40px rgba(2, 14, 19, 0.55), 0 4px 8px rgba(2, 14, 19, 0.4);
+
+  /* motion */
+  --dur: 160ms;
+  --dur-slow: 280ms;
+  --ease: cubic-bezier(0.33, 1, 0.68, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* controls */
+  --control-h: 46px;
+  --touch-target: 44px;
 }
 
 * {
   box-sizing: border-box;
+}
+
+html {
+  color-scheme: dark;
+  -webkit-text-size-adjust: 100%;
 }
 
 html,
@@ -61,15 +97,35 @@ body,
 #root {
   margin: 0;
   padding: 0;
+  min-height: 100%;
 }
 
 body {
-  background: var(--petrol-950);
+  background:
+    radial-gradient(80% 50% at 85% -5%, rgba(18, 98, 111, 0.28), transparent 60%),
+    radial-gradient(60% 40% at -10% 100%, rgba(248, 73, 96, 0.1), transparent 55%),
+    var(--petrol-950);
+  background-attachment: fixed;
   color: var(--ink-50);
   font-family: var(--font-ui);
   font-size: var(--text-sm);
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+
+::selection {
+  background: rgba(0, 179, 179, 0.35);
+  color: var(--mint-100);
 }
 
 /* instrument numbers: data reads differently from labels */
@@ -78,15 +134,52 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* visible focus ring on everything interactive — never suppressed */
+/* visible focus ring on everything interactive — never suppressed.
+ * 2.5px + brand teal so it reads on petrol surfaces and the paper sheets. */
 :focus-visible {
-  outline: 2px solid var(--teal-500);
+  outline: 2.5px solid var(--teal-400);
   outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+:focus:not(:focus-visible) {
+  outline: none;
 }
 
 h1,
 h2,
-h3 {
+h3,
+p {
   margin: 0;
   font-weight: 600;
+}
+
+/* thin branded scrollbars (chromium + webkit) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--petrol-700) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--petrol-700);
+  border-radius: var(--r-pill);
+  border: 2px solid var(--petrol-950);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* reduced motion: collapse all non-essential animation */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }

@@ -125,9 +125,9 @@ export default function SafetyView() {
             {drivers.map((d) => (
               <tr key={d.id}>
                 <td>{d.user.first_name} {d.user.last_name} <span className="muted">@{d.user.username}</span></td>
-                <td>{d.vehicle_unit || "—"}</td>
-                <td className="num">{d.cycle_used}</td>
-                <td className="num">
+                <td data-label="truck">{d.vehicle_unit || "—"}</td>
+                <td data-label="cycle used" className="num">{d.cycle_used}</td>
+                <td data-label="/ 70" className="num">
                   <span className={`cycle-fill ${d.cycle_used >= 65 ? "cycle-hot" : ""}`}>
                     {d.cycle_used >= 65 ? "high" : d.cycle_used >= 45 ? "watch" : "ok"}
                   </span>

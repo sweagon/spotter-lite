@@ -4,6 +4,7 @@ import PlannerForm from "../components/PlannerForm";
 import PlanResults from "../components/PlanResults";
 import DutyControl from "../components/DutyControl";
 import LiveLogDay from "../components/LiveLogDay";
+import Board from "../components/Board";
 import { useAuth } from "../auth";
 
 const SELF_PATCH = {
@@ -131,195 +132,196 @@ export default function DriverHome() {
     : null;
 
   return (
-    <div className="shell driver-shell">
-      <aside className="rail">
-        <p className="rail-hello">
-          {user.first_name || user.username}
-          {selected ? " · trip view" : ""}
-        </p>
-        {profile && (
-          <section className="hos-card">
-            <div className="hos-card-row">
-              <span>cycle used</span>
-              <span className="num">
-                {profile.cycle_used}
-                <small> / 70</small>
-              </span>
-            </div>
-            <div className="hos-card-row">
-              <span>vehicle</span>
-              <span className="num">{profile.vehicle_unit || "—"}</span>
-            </div>
-            {duty?.today_driving_hours != null && (
+    <Board
+      className="driver-shell"
+      rail={
+        <>
+          <p className="rail-hello">
+            {user.first_name || user.username}
+            {selected ? " · trip view" : ""}
+          </p>
+          {profile && (
+            <section className="hos-card">
               <div className="hos-card-row">
-                <span>driving today</span>
-                <span className="num">{duty.today_driving_hours}h</span>
-              </div>
-            )}
-            {me?.alerts?.length > 0 && (
-              <div className="hos-alerts">
-                <p className="hos-alerts-title">watchdog flags</p>
-                {me.alerts.map((a) => (
-                  <p key={a.id} className="hos-alert">
-                    {a.rule.replace("_", " ")} · {a.detail || "check hours"}
-                  </p>
-                ))}
-              </div>
-            )}
-          </section>
-        )}
-
-        <div className="rail-block">
-          <button
-            className={`rail-link ${!selected && !result && !planning ? "rail-active" : ""}`}
-            onClick={() => { setSelected(null); setResult(null); setPlanning(false); }}
-          >
-            ← duty &amp; today's log
-          </button>
-          <button
-            className={`rail-link ${planning ? "rail-active" : ""}`}
-            onClick={() => { setSelected(null); setResult(null); setPlanning(true); }}
-          >
-            + plan a trip
-          </button>
-          <button
-            className="rail-link"
-            onClick={async () => {
-              const { ok, data } = await apiJson("/api/duty/");
-              if (ok) setMe((m) => ({ ...m, duty: data }));
-            }}
-          >
-            ↻ refresh today
-          </button>
-        </div>
-
-        <section>
-          <h3 className="rail-sub">my trips</h3>
-          <div className="trip-list">
-            {trips.length === 0 && (
-              <p className="trip-empty">no trips yet — the plan form starts one.</p>
-            )}
-            {trips.slice(0, 15).map((t) => (
-              <button
-                key={t.id}
-                className={`trip-row ${selected?.id === t.id ? "trip-active" : ""}`}
-                onClick={() => openTrip(t.id)}
-              >
-                <span className="trip-row-main">
-                  <span className="trip-id">#{t.id}</span>
-                  <span className="trip-route">
-                    {t.pickup_location} → {t.dropoff_location}
-                  </span>
+                <span>cycle used</span>
+                <span className="num">
+                  {profile.cycle_used}
+                  <small> / 70</small>
                 </span>
-                <span className={`badge badge-${t.status}`}>{t.status_label}</span>
-              </button>
-            ))}
-          </div>
-        </section>
-      </aside>
-
-      <main className="canvas">
-        {toast && (
-          <div className="toast" role="status">
-            {toast}
-          </div>
-        )}
-        {error && (
-          <div className="panel-error" role="alert">
-            <p className="panel-error-title">Something went wrong.</p>
-            <p>{error}</p>
-          </div>
-        )}
-
-        {!selected && !result && (
-          <div className="cab-grid">
-            <DutyControl
-              current={duty?.current}
-              onCommit={commitDuty}
-              disabled={busy}
-            />
-
-            <div className="live-log-wrap">
-              {todayDay && (
-                <LiveLogDay
-                  day={todayDay}
-                  cycleUsed={profile?.cycle_used}
-                  drivingHours={duty.today_driving_hours}
-                />
-              )}
-              {!todayDay && (
-                <div className="empty">
-                  <p className="empty-copy">set your first duty status and today's log sheet draws here.</p>
+              </div>
+              <div className="hos-card-row">
+                <span>vehicle</span>
+                <span className="num">{profile.vehicle_unit || "—"}</span>
+              </div>
+              {duty?.today_driving_hours != null && (
+                <div className="hos-card-row">
+                  <span>driving today</span>
+                  <span className="num">{duty.today_driving_hours}h</span>
                 </div>
               )}
-            </div>
-          </div>
-        )}
-
-        {!selected && result && !planning && (
-          <div className="results">
-            <p className="plan-saved">
-              planner generated · trip saved as #{result.trip?.id} ·{" "}
-              <button className="btn-mini" onClick={async () => { await openTrip(result.trip.id); }}>
-                open to start it
-              </button>
-            </p>
-            <PlanResults
-              result={result}
-              pickup={result.trip?.pickup_location ?? "Pickup"}
-              dropoff={result.trip?.dropoff_location ?? "Dropoff"}
-            />
-          </div>
-        )}
-
-        {!selected && planning && (
-          <div className="plan-layout">
-            <div className="plan-form-col">
-              <PlannerForm onSubmit={plan} submitting={busy} submitLabel="Plan my trip" />
-            </div>
-            <div className="plan-result-col">
-              {result && (
-                <>
-                  <p className="plan-saved">planner generated · trip saved as #{result.trip?.id}</p>
-                  <PlanResults
-                    result={result}
-                    pickup={result.trip?.pickup_location ?? "Pickup"}
-                    dropoff={result.trip?.dropoff_location ?? "Dropoff"}
-                  />
-                </>
+              {me?.alerts?.length > 0 && (
+                <div className="hos-alerts">
+                  <p className="hos-alerts-title">watchdog flags</p>
+                  {me.alerts.map((a) => (
+                    <p key={a.id} className="hos-alert">
+                      {a.rule.replace("_", " ")} · {a.detail || "check hours"}
+                    </p>
+                  ))}
+                </div>
               )}
-              {!result && (
-                <div className="empty"><p className="empty-copy">the route, gauges and logs land here.</p></div>
-              )}
-            </div>
-          </div>
-        )}
+            </section>
+          )}
 
-        {selected && (
-          <>
-            <div className="trip-actions">
-              <span className="trip-actions-label">
-                #{selected.id} · {selected.pickup_location} → {selected.dropoff_location}
-              </span>
-              {(SELF_PATCH[selected.status] || []).map((n) => (
-                <button key={n} className="btn-mini" onClick={() => tripAction(selected, n)}>
-                  {n === "en_route" ? "start / continue" : n === "stopped" ? "stop" : "deliver"}
+          <div className="rail-block">
+            <button
+              className={`rail-link ${!selected && !result && !planning ? "rail-active" : ""}`}
+              onClick={() => { setSelected(null); setResult(null); setPlanning(false); }}
+            >
+              ← duty &amp; today's log
+            </button>
+            <button
+              className={`rail-link ${planning ? "rail-active" : ""}`}
+              onClick={() => { setSelected(null); setResult(null); setPlanning(true); }}
+            >
+              + plan a trip
+            </button>
+            <button
+              className="rail-link"
+              onClick={async () => {
+                const { ok, data } = await apiJson("/api/duty/");
+                if (ok) setMe((m) => ({ ...m, duty: data }));
+              }}
+            >
+              ↻ refresh today
+            </button>
+          </div>
+
+          <section>
+            <h3 className="rail-sub">my trips</h3>
+            <div className="trip-list">
+              {trips.length === 0 && (
+                <p className="trip-empty">no trips yet — the plan form starts one.</p>
+              )}
+              {trips.slice(0, 15).map((t) => (
+                <button
+                  key={t.id}
+                  className={`trip-row ${selected?.id === t.id ? "trip-active" : ""}`}
+                  onClick={() => openTrip(t.id)}
+                >
+                  <span className="trip-row-main">
+                    <span className="trip-id">#{t.id}</span>
+                    <span className="trip-route">
+                      {t.pickup_location} → {t.dropoff_location}
+                    </span>
+                  </span>
+                  <span className={`badge badge-${t.status}`}>{t.status_label}</span>
                 </button>
               ))}
-              {selected.status === "en_route" && (
-                <button className="btn-mini" onClick={() => commitDuty("sleeper_berth", "")}>
-                  rest
-                </button>
-              )}
             </div>
-            <PlanResults
-              result={selected}
-              pickup={selected.pickup_location}
-              dropoff={selected.dropoff_location}
-            />
-          </>
-        )}
-      </main>
-    </div>
+          </section>
+        </>
+      }
+    >
+      {toast && (
+        <div className="toast" role="status">
+          {toast}
+        </div>
+      )}
+      {error && (
+        <div className="panel-error" role="alert">
+          <p className="panel-error-title">Something went wrong.</p>
+          <p>{error}</p>
+        </div>
+      )}
+
+      {!selected && !result && (
+        <div className="cab-grid">
+          <DutyControl
+            current={duty?.current}
+            onCommit={commitDuty}
+            disabled={busy}
+          />
+
+          <div className="live-log-wrap">
+            {todayDay && (
+              <LiveLogDay
+                day={todayDay}
+                cycleUsed={profile?.cycle_used}
+                drivingHours={duty.today_driving_hours}
+              />
+            )}
+            {!todayDay && (
+              <div className="empty">
+                <p className="empty-copy">set your first duty status and today's log sheet draws here.</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {!selected && result && !planning && (
+        <div className="results">
+          <p className="plan-saved">
+            planner generated · trip saved as #{result.trip?.id} ·{" "}
+            <button className="btn-mini" onClick={async () => { await openTrip(result.trip.id); }}>
+              open to start it
+            </button>
+          </p>
+          <PlanResults
+            result={result}
+            pickup={result.trip?.pickup_location ?? "Pickup"}
+            dropoff={result.trip?.dropoff_location ?? "Dropoff"}
+          />
+        </div>
+      )}
+
+      {!selected && planning && (
+        <div className="plan-layout">
+          <div className="plan-form-col">
+            <PlannerForm onSubmit={plan} submitting={busy} submitLabel="Plan my trip" />
+          </div>
+          <div className="plan-result-col">
+            {result && (
+              <>
+                <p className="plan-saved">planner generated · trip saved as #{result.trip?.id}</p>
+                <PlanResults
+                  result={result}
+                  pickup={result.trip?.pickup_location ?? "Pickup"}
+                  dropoff={result.trip?.dropoff_location ?? "Dropoff"}
+                />
+              </>
+            )}
+            {!result && (
+              <div className="empty"><p className="empty-copy">the route, gauges and logs land here.</p></div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {selected && (
+        <>
+          <div className="trip-actions">
+            <span className="trip-actions-label">
+              #{selected.id} · {selected.pickup_location} → {selected.dropoff_location}
+            </span>
+            {(SELF_PATCH[selected.status] || []).map((n) => (
+              <button key={n} className="btn-mini" onClick={() => tripAction(selected, n)}>
+                {n === "en_route" ? "start / continue" : n === "stopped" ? "stop" : "deliver"}
+              </button>
+            ))}
+            {selected.status === "en_route" && (
+              <button className="btn-mini" onClick={() => commitDuty("sleeper_berth", "")}>
+                rest
+              </button>
+            )}
+          </div>
+          <PlanResults
+            result={selected}
+            pickup={selected.pickup_location}
+            dropoff={selected.dropoff_location}
+          />
+        </>
+      )}
+    </Board>
   );
 }

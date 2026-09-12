@@ -1,4 +1,4 @@
-import { BrowserRouter, Navigate, Outlet, Route, Routes, Link, useNavigate } from "react-router-dom";
+import { BrowserRouter, Navigate, Outlet, Route, Routes, Link, useLocation, useNavigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./auth";
 import "./App.css";
 import LogoMark from "./components/LogoMark";
@@ -41,8 +41,12 @@ function RequireAdmin() {
 function Shell() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const loc = useLocation();
 
   if (!user) return <Navigate to="/login" replace />;
+
+  const isBoard = ["/", "/dispatch", "/admin"].includes(loc.pathname);
+  const isAdmin = user.role === "Admin";
 
   function signOut() {
     logout();
@@ -52,29 +56,36 @@ function Shell() {
   return (
     <div className="app">
       <header className="topbar">
+        {isBoard && (
+          <button className="menu-btn" onClick={() => window.dispatchEvent(new Event("spotter:toggle-nav"))} aria-label="Toggle menu">
+            <span />
+          </button>
+        )}
         <div className="topbar-brand">
           <LogoMark />
         </div>
         <span className="topbar-label">
           {user.role === "Dispatcher" && "dispatch board"}
-          {user.role === "Admin" && "dispatch · admin"}
+          {user.role === "Admin" && "admin"}
           {user.role === "Auditor" && "safety & compliance"}
-          {user.role === "Driver" && "driver cab"}
+          {user.role === "Driver" && "cab"}
         </span>
         <div className="topbar-right">
           {user.role === "Dispatcher" && (
-            <Link className="topbar-link" to="/dispatch">board</Link>
+            <Link className={`topbar-link ${loc.pathname === "/dispatch" ? "topbar-link--active" : ""}`} to="/dispatch">board</Link>
           )}
-          {user.role === "Admin" && (
+          {isAdmin && (
             <>
-              <Link className="topbar-link" to="/dispatch">board</Link>
-              <Link className="topbar-link" to="/admin">admin</Link>
+              <Link className={`topbar-link ${loc.pathname === "/dispatch" ? "topbar-link--active" : ""}`} to="/dispatch">board</Link>
+              <Link className={`topbar-link ${loc.pathname === "/admin" ? "topbar-link--active" : ""}`} to="/admin">admin</Link>
             </>
           )}
           {user.role === "Auditor" && (
-            <Link className="topbar-link" to="/safety">safety</Link>
+            <Link className={`topbar-link ${loc.pathname === "/safety" ? "topbar-link--active" : ""}`} to="/safety">safety</Link>
           )}
-          <Link className="topbar-link" to="/">home</Link>
+          {user.role === "Driver" && (
+            <Link className={`topbar-link ${loc.pathname === "/" ? "topbar-link--active" : ""}` } to="/">home</Link>
+          )}
           <span className="topbar-user num">{user.first_name || user.username}</span>
           <button className="btn-mini" onClick={signOut}>sign out</button>
         </div>

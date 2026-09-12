@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { apiJson } from "../api";
+import Board from "../components/Board";
 
 const ROLES = ["driver", "dispatcher", "auditor"];
 const VEHICLE_TYPES = ["sleeper", "daycab", "dryvan", "reefer", "flatbed"];
@@ -95,27 +96,29 @@ export default function AdminConsole() {
   }
 
   return (
-    <div className="shell board-shell">
-      <aside className="rail">
-        <div className="rail-block">
-          <h3 className="rail-sub">admin console</h3>
-          <button className={`rail-link ${tab === "drivers" ? "rail-active" : ""}`} onClick={() => setTab("drivers")}>
-            drivers
-          </button>
-          <button className={`rail-link ${tab === "vehicles" ? "rail-active" : ""}`} onClick={() => setTab("vehicles")}>
-            vehicles
-          </button>
-        </div>
-        <div className="rail-block">
-          <h3 className="rail-sub">fleet</h3>
-          <div className="fleet-mini">
-            <p className="fleet-line"><span>drivers</span><span className="num">{drivers.length}</span></p>
-            <p className="fleet-line"><span>vehicles</span><span className="num">{vehicles.length}</span></p>
-          </div>
-        </div>
-      </aside>
-
-      <main className="canvas board-canvas">
+    <Board
+      className="board-shell"
+        rail={
+          <>
+            <div className="rail-block">
+              <h3 className="rail-sub">admin console</h3>
+              <button className={`rail-link ${tab === "drivers" ? "rail-active" : ""}`} onClick={() => setTab("drivers")}>
+                drivers
+              </button>
+              <button className={`rail-link ${tab === "vehicles" ? "rail-active" : ""}`} onClick={() => setTab("vehicles")}>
+                vehicles
+              </button>
+            </div>
+            <div className="rail-block">
+              <h3 className="rail-sub">fleet</h3>
+              <div className="fleet-mini">
+                <p className="fleet-line"><span>drivers</span><span className="num">{drivers.length}</span></p>
+                <p className="fleet-line"><span>vehicles</span><span className="num">{vehicles.length}</span></p>
+              </div>
+            </div>
+          </>
+        }
+      >
         {flash && <div className="toast">{flash}</div>}
         {error && (
           <div className="panel-error" role="alert">
@@ -231,11 +234,11 @@ export default function AdminConsole() {
                 {drivers.map((d) => (
                   <tr key={d.id}>
                     <td className="num">{d.user.username}<br /><span className="muted">{d.user.first_name} {d.user.last_name}</span></td>
-                    <td>{d.user.role.toLowerCase()}</td>
-                    <td className="num">{d.vehicle_unit || "—"}</td>
-                    <td className="num">{d.cycle_used.toFixed(1)}h</td>
-                    <td className="num">{d.today_driving_hours.toFixed(1)}h</td>
-                    <td>{d.active ? "active" : "off"}</td>
+                    <td data-label="role">{d.user.role.toLowerCase()}</td>
+                    <td data-label="truck" className="num">{d.vehicle_unit || "—"}</td>
+                    <td data-label="cycle" className="num">{d.cycle_used.toFixed(1)}h</td>
+                    <td data-label="hours today" className="num">{d.today_driving_hours.toFixed(1)}h</td>
+                    <td data-label="status">{d.active ? "active" : "off"}</td>
                     <td className="table-actions">
                       <button className="btn-mini" onClick={() => setDForm({
                         ...emptyDriverForm(),
@@ -270,11 +273,11 @@ export default function AdminConsole() {
                 {vehicles.map((v) => (
                   <tr key={v.id}>
                     <td className="num">{v.unit_no}</td>
-                    <td>{v.vehicle_type}</td>
-                    <td className="num">{v.vin || "—"}</td>
-                    <td className="num">{v.current_odometer ? v.current_odometer.toLocaleString() : "—"}</td>
-                    <td className="num">{v.assigned_driver || "—"}</td>
-                    <td>{v.active ? "active" : "off"}</td>
+                    <td data-label="type">{v.vehicle_type}</td>
+                    <td data-label="vin" className="num">{v.vin || "—"}</td>
+                    <td data-label="odometer" className="num">{v.current_odometer ? v.current_odometer.toLocaleString() : "—"}</td>
+                    <td data-label="assigned to" className="num">{v.assigned_driver || "—"}</td>
+                    <td data-label="status">{v.active ? "active" : "off"}</td>
                     <td className="table-actions">
                       <button className="btn-mini" onClick={() => setVForm({
                         ...emptyVehicleForm(),
@@ -291,7 +294,6 @@ export default function AdminConsole() {
             </table>
           </div>
         )}
-      </main>
-    </div>
+      </Board>
   );
 }
