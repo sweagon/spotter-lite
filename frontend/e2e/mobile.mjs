@@ -58,10 +58,10 @@ await check("mobile: driver cab, no horizontal scroll", async () => {
 await check("mobile: admin vehicles table renders as stacked cards", async () => {
   await page.evaluate(() => localStorage.clear());
   await login("admin", "http://localhost:5173/dispatch");
-  await page.click('a.topbar-link:text("admin")');
+  await page.click('a.topbar-link:text("Admin")');
   await page.waitForSelector(".admin-table tbody tr", { timeout: 8000 });
   await page.click(".menu-btn");
-  await page.click('.rail-link:text("vehicles")');
+  await page.click('.rail-link:text("Vehicles")');
   await page.waitForSelector(".admin-table");
   const sample = await page.locator('.admin-table tbody tr td[data-label]').first().count();
   if (!sample) throw new Error("no data-label cells for mobile cards");
@@ -76,8 +76,8 @@ await check("mobile: admin vehicles table renders as stacked cards", async () =>
 await check("mobile: dispatcher fleet chips work", async () => {
   await page.evaluate(() => localStorage.clear());
   await login("dispatch", "http://localhost:5173/dispatch");
-  await page.waitForSelector('.chip:text("drivers")', { timeout: 8000 });
-  await page.click('.chip:text("vehicles")');
+  await page.waitForSelector('.chip:text("Drivers")', { timeout: 8000 });
+  await page.click('.chip:text("Vehicles")');
   await page.waitForSelector(".admin-table");
   if (await page.locator('button:has-text("add vehicle")').count())
     throw new Error("dispatcher saw add-vehicle button");
@@ -96,7 +96,7 @@ await check("mobile: login page has demo chips and no scroll", async () => {
   await page.evaluate(() => localStorage.clear());
   await page.goto(`${base}/login`);
   await page.waitForSelector(".demo-chips .chip", { timeout: 8000 });
-  await page.click('.demo-chips .chip:text("driver")');
+  await page.click('.demo-chips .chip:text("Driver")');
   const val = await page.inputValue('input[autocomplete="username"]');
   if (val !== "danton") throw new Error("demo chip did not fill username");
   if (!(await noHScroll())) throw new Error("login overflows horizontally");

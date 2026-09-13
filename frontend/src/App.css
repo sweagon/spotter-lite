@@ -438,16 +438,14 @@
   color: var(--ink-300);
   font-size: var(--text-xxs);
   font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 .field-label {
   font-size: var(--text-xxs);
   color: var(--ink-300);
   font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 .field-input-wrap {
@@ -768,7 +766,6 @@
   font-size: var(--text-xxs);
   font-weight: 600;
   letter-spacing: 0.03em;
-  text-transform: uppercase;
 }
 .gauge-value {
   font-size: var(--data-lg);
@@ -936,7 +933,7 @@
 /* sheet internals (SVG text) */
 .sheet-title { font-size: 12px; font-weight: 700; fill: #ffffff; letter-spacing: 0.05em; }
 .sheet-title--cram { font-size: 11px; letter-spacing: 0.03em; }
-.sheet-field-label { font-size: 9.5px; font-weight: 600; fill: rgba(255, 255, 255, 0.78); letter-spacing: 0.06em; text-transform: uppercase; }
+.sheet-field-label { font-size: 9.5px; font-weight: 600; fill: rgba(255, 255, 255, 0.78); letter-spacing: 0.04em; }
 .sheet-field-value { font-size: 12.5px; font-weight: 600; fill: #ffffff; }
 .sheet-row-label { font-size: 10px; font-weight: 600; fill: #334155; letter-spacing: 0.02em; }
 .sheet-total { font-size: 14px; font-weight: 600; fill: #0f172a; }
@@ -1052,7 +1049,6 @@
   font-size: 11px;
   font-weight: 600;
   font-family: var(--font-data);
-  text-transform: lowercase;
   letter-spacing: 0.02em;
   white-space: nowrap;
 }
@@ -1144,8 +1140,7 @@
   color: var(--ink-500);
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 .page-title {
@@ -1199,8 +1194,7 @@
   margin: 0 0 var(--s-2);
   color: var(--alert-400);
   font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  letter-spacing: 0.05em;
   font-weight: 700;
 }
 .hos-alert {
@@ -1644,8 +1638,7 @@
 .hero-kpi span:last-child {
   color: var(--ink-300);
   font-size: var(--text-xxs);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 .login-card {
@@ -1693,8 +1686,7 @@
   color: var(--ink-500);
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 .demo-chips {
   display: flex;
@@ -1734,8 +1726,7 @@
   color: var(--ink-400);
   font-weight: 700;
   font-size: 11px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  letter-spacing: 0.02em;
   cursor: pointer;
   padding: var(--s-2);
   min-height: var(--touch-target);
@@ -1853,8 +1844,7 @@
   color: var(--ink-300);
   font-size: var(--text-xxs);
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.04em;
 }
 
 .safety-section {
@@ -1890,9 +1880,8 @@
   text-align: left;
   color: var(--ink-500);
   font-weight: 700;
-  text-transform: uppercase;
   font-size: var(--text-xxs);
-  letter-spacing: 0.06em;
+  letter-spacing: 0.04em;
   padding: var(--s-2) var(--s-3);
   border-bottom: 1px solid var(--hairline);
   white-space: nowrap;
@@ -1967,8 +1956,7 @@
     font-size: 11px;
     font-weight: 700;
     color: var(--ink-500);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.04em;
     margin-bottom: 2px;
   }
   .table td:first-child::before,
@@ -2181,8 +2169,7 @@
   color: var(--ink-300);
   font-size: var(--text-xxs);
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.04em;
 }
 
 /* trip actions: sticky bottom sheet on mobile, inline row on desktop */
@@ -2337,5 +2324,103 @@
 @media (min-width: 900px) {
   .logs {
     overflow-x: visible;
+  }
+}
+/* ------------------------------------------------------------------ */
+/* motion: one deliberate page-enter per view + micro-lifts on hover     */
+/* gated by prefers-reduced-motion; every interactive element already    */
+/* eases transform/color via the shared tokens above.                   */
+/* ------------------------------------------------------------------ */
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes page-enter {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @keyframes notice-in {
+    from {
+      opacity: 0;
+      transform: translateY(-6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  /* every distinct screen mounts fresh, so navigation re-renders the
+     entrance without any router animation library. */
+  .canvas,
+  .safety-view,
+  .login,
+  .planner-shell {
+    animation: page-enter var(--dur-slow) var(--ease);
+  }
+
+  .toast,
+  .panel-error {
+    animation: notice-in var(--dur) var(--ease);
+  }
+
+  .empty {
+    animation: page-enter var(--dur) var(--ease);
+  }
+
+  @media (hover: hover) {
+    .board-card:not(.board-open),
+    .kpi-card,
+    .alert-row,
+    .trip-row {
+      transition:
+        border-color var(--dur) var(--ease),
+        box-shadow var(--dur) var(--ease),
+        transform var(--dur) var(--ease);
+    }
+
+    .board-card:not(.board-open):hover {
+      transform: translateY(-2px);
+      border-color: var(--hairline-strong);
+      box-shadow: var(--shadow-1);
+    }
+
+    .kpi-card:hover {
+      transform: translateY(-2px);
+    }
+
+    .trip-row:not(.trip-active):hover {
+      transform: translateX(3px);
+    }
+
+    .alert-row:hover {
+      transform: translateX(3px);
+    }
+
+    .chip {
+      transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .canvas,
+  .safety-view,
+  .login,
+  .planner-shell,
+  .toast,
+  .panel-error,
+  .empty,
+  .board-card,
+  .kpi-card,
+  .trip-row,
+  .alert-row,
+  .chip {
+    animation: none;
+    transition: none;
   }
 }

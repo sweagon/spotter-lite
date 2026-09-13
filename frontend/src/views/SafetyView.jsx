@@ -5,6 +5,12 @@ import PlanResults from "../components/PlanResults";
 /** the auditor's read-only compliance view: fleet posture, open HOS
  * watchdog flags, live trip board and a one-click compliance packet
  * (every drawn log sheet as a single PDF). no mutations anywhere. */
+const humanize = (s) =>
+  s
+    .split("_")
+    .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w))
+    .join(" ");
+
 export default function SafetyView() {
   const [drivers, setDrivers] = useState([]);
   const [trips, setTrips] = useState([]);
@@ -62,7 +68,7 @@ export default function SafetyView() {
       <div className="safety-head">
         <div>
           <h1 className="page-title">Safety &amp; compliance</h1>
-          <p className="page-sub">read-only fleet posture — HOS watchdog, live loads, and the daily-log packet.</p>
+          <p className="page-sub">Read-only fleet posture — HOS watchdog, live loads, and the daily-log packet.</p>
         </div>
         <button className="btn-export" onClick={exportPdf} disabled={exporting}>
           {exporting ? "Processing…" : "⤓ Download compliance packet (PDF)"}
@@ -78,19 +84,19 @@ export default function SafetyView() {
       <div className="kpi-strip">
         <div className="kpi-card">
           <span className="num kpi-num">{openAlerts.length}</span>
-          <span className="kpi-label">open HOS flags</span>
+          <span className="kpi-label">Open HOS flags</span>
         </div>
         <div className="kpi-card">
           <span className="num kpi-num">{liveTrips.length}</span>
-          <span className="kpi-label">live loads</span>
+          <span className="kpi-label">Live loads</span>
         </div>
         <div className="kpi-card">
           <span className="num kpi-num">{drivers.length}</span>
-          <span className="kpi-label">active drivers</span>
+          <span className="kpi-label">Active drivers</span>
         </div>
         <div className="kpi-card">
           <span className="num kpi-num">{vehicles.length}</span>
-          <span className="kpi-label">active vehicles</span>
+          <span className="kpi-label">Active vehicles</span>
         </div>
       </div>
 
@@ -100,7 +106,7 @@ export default function SafetyView() {
         {openAlerts.map((a) => (
           <div key={a.id} className="alert-row">
             <span className="alert-msg">
-              <strong>{a.driver_name}</strong> · {a.rule.replace("_", " ")}
+              <strong>{a.driver_name}</strong> · {humanize(a.rule)}
             </span>
             <span className="alert-detail">{a.detail}</span>
           </div>
@@ -112,9 +118,9 @@ export default function SafetyView() {
         <table className="table">
           <thead>
             <tr>
-              <th>driver</th>
-              <th>truck</th>
-              <th className="num">cycle used</th>
+              <th>Driver</th>
+              <th>Truck</th>
+              <th className="num">Cycle used</th>
               <th className="num">/ 70</th>
             </tr>
           </thead>
@@ -125,11 +131,11 @@ export default function SafetyView() {
             {drivers.map((d) => (
               <tr key={d.id}>
                 <td>{d.user.first_name} {d.user.last_name} <span className="muted">@{d.user.username}</span></td>
-                <td data-label="truck">{d.vehicle_unit || "—"}</td>
-                <td data-label="cycle used" className="num">{d.cycle_used}</td>
+                <td data-label="Truck">{d.vehicle_unit || "—"}</td>
+                <td data-label="Cycle used" className="num">{d.cycle_used}</td>
                 <td data-label="/ 70" className="num">
                   <span className={`cycle-fill ${d.cycle_used >= 65 ? "cycle-hot" : ""}`}>
-                    {d.cycle_used >= 65 ? "high" : d.cycle_used >= 45 ? "watch" : "ok"}
+                    {d.cycle_used >= 65 ? "High" : d.cycle_used >= 45 ? "Watch" : "Ok"}
                   </span>
                 </td>
               </tr>
@@ -151,7 +157,7 @@ export default function SafetyView() {
                   <strong>#{t.id}</strong> {t.pickup_location} → {t.dropoff_location}
                 </span>
                 <span className="board-card-meta num">
-                  {t.driver ? t.driver.user.username : "unstaffed"} · {t.distance_miles} mi · {t.created_by_username}
+                  {t.driver ? t.driver.user.username : "Unstaffed"} · {t.distance_miles} mi · {t.created_by_username}
                 </span>
                 <span className="board-expand">{open ? "▲" : "▼"}</span>
               </button>

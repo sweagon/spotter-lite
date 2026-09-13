@@ -7,7 +7,7 @@
 const LIMITS = {
   driving: { limit: 11, label: "Driving" },
   window: { limit: 14, label: "On-duty window" },
-  cycle: { limit: 70, label: "70-hr cycle" },
+  cycle: { limit: 70, label: "70-hour cycle" },
 };
 
 function barColor(used, limit) {

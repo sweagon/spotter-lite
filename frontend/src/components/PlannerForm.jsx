@@ -88,7 +88,7 @@ export default function PlannerForm({
               onChange={(e) => set("driver_id")(e.target.value)}
               className="select"
             >
-              <option value="">— unassigned —</option>
+              <option value="">— Unassigned —</option>
               {drivers.map((d) => (
                 <option key={d.id} value={d.id}>
                   {d.user.first_name} {d.user.last_name} ({d.user.username})
@@ -104,7 +104,7 @@ export default function PlannerForm({
               onChange={(e) => set("vehicle_id")(e.target.value)}
               className="select"
             >
-              <option value="">— unassigned —</option>
+              <option value="">— Unassigned —</option>
               {vehicles.map((v) => (
                 <option key={v.id} value={v.id}>
                   {v.label}

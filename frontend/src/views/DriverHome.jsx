@@ -23,6 +23,12 @@ const STATUS_LABEL = {
   on_duty_not_driving: "On duty (not driving)",
 };
 
+const humanize = (s) =>
+  s
+    .split("_")
+    .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w))
+    .join(" ");
+
 /** the driver cab: plan a load, ride it through the status flow (start /
  * rest / stop / deliver) and signal duty changes that draw today's live
  * RODS sheet. */
@@ -145,33 +151,33 @@ export default function DriverHome() {
         <>
           <p className="rail-hello">
             {user.first_name || user.username}
-            {selected ? " · trip view" : ""}
+            {selected ? " · Trip view" : ""}
           </p>
           {profile && (
             <section className="hos-card">
               <div className="hos-card-row">
-                <span>cycle used</span>
+                <span>Cycle used</span>
                 <span className="num">
                   {profile.cycle_used}
                   <small> / 70</small>
                 </span>
               </div>
               <div className="hos-card-row">
-                <span>vehicle</span>
+                <span>Vehicle</span>
                 <span className="num">{profile.vehicle_unit || "—"}</span>
               </div>
               {duty?.today_driving_hours != null && (
                 <div className="hos-card-row">
-                  <span>driving today</span>
+                  <span>Driving today</span>
                   <span className="num">{duty.today_driving_hours}h</span>
                 </div>
               )}
               {me?.alerts?.length > 0 && (
                 <div className="hos-alerts">
-                  <p className="hos-alerts-title">watchdog flags</p>
+                  <p className="hos-alerts-title">Watchdog flags</p>
                   {me.alerts.map((a) => (
                     <p key={a.id} className="hos-alert">
-                      {a.rule.replace("_", " ")} · {a.detail || "check hours"}
+                      {humanize(a.rule)} · {a.detail || "Check hours"}
                     </p>
                   ))}
                 </div>
@@ -184,13 +190,13 @@ export default function DriverHome() {
               className={`rail-link ${!selected && !result && !planning ? "rail-active" : ""}`}
               onClick={() => { setSelected(null); setResult(null); setPlanning(false); }}
             >
-              ← duty &amp; today's log
+              ← Duty &amp; Today's Log
             </button>
             <button
               className={`rail-link ${planning ? "rail-active" : ""}`}
               onClick={() => { setSelected(null); setResult(null); setPlanning(true); }}
             >
-              + plan a trip
+              + Plan a Trip
             </button>
             <button
               className="rail-link"
@@ -199,12 +205,12 @@ export default function DriverHome() {
                 if (ok) setMe((m) => ({ ...m, duty: data }));
               }}
             >
-              ↻ refresh today
+              ↻ Refresh Today
             </button>
           </div>
 
           <section>
-            <h3 className="rail-sub">my trips</h3>
+            <h3 className="rail-sub">My Trips</h3>
             <div className="trip-list">
               {trips.length === 0 && (
                 <p className="trip-empty">No trips yet. Use the trip planner to create your first load.</p>
@@ -271,7 +277,7 @@ export default function DriverHome() {
           <p className="plan-saved">
             Trip planned · saved as #{result.trip?.id} ·{" "}
             <button className="btn-mini" onClick={async () => { await openTrip(result.trip.id); }}>
-              open to start it
+              Open to start it
             </button>
           </p>
           <PlanResults
@@ -313,12 +319,12 @@ export default function DriverHome() {
             </span>
             {(SELF_PATCH[selected.status] || []).map((n) => (
               <button key={n} className="btn-mini" onClick={() => tripAction(selected, n)}>
-                {n === "en_route" ? "start / continue" : n === "stopped" ? "stop" : "deliver"}
+                {n === "en_route" ? "Start / Continue" : n === "stopped" ? "Stop" : "Deliver"}
               </button>
             ))}
             {selected.status === "en_route" && (
               <button className="btn-mini" onClick={() => commitDuty("sleeper_berth", "")}>
-                rest
+                Rest
               </button>
             )}
           </div>

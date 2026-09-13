@@ -96,13 +96,13 @@ export default function LogSheet({ day, index, cycleUsed }) {
         {/* ---- zone 1 (simplified): identity header strip ---- */}
         <rect x="0" y="0" width={VIEW.w} height={46} fill="#043b4c" />
         <text x="18" y="30" className="sheet-title">
-          DRIVER'S DAILY LOG
+          Driver's Daily Log
         </text>
-        <FormField x={318} label="date" value={pretty} />
-        <FormField x={452} label="total miles" value={String(dayMiles)} mono />
-        <FormField x={598} label="carrier" value="—" />
-        <FormField x={744} label="vehicle no." value="—" />
-        <FormField x={810} label="trailer no." value="—" />
+        <FormField x={318} label="Date" value={pretty} />
+        <FormField x={452} label="Total miles" value={String(dayMiles)} mono />
+        <FormField x={598} label="Carrier" value="—" />
+        <FormField x={744} label="Vehicle no." value="—" />
+        <FormField x={810} label="Trailer no." value="—" />
         <text x={VIEW.w - 20} y="30" className="sheet-title sheet-title--cram" textAnchor="end">
           24-HOUR GRID · 49 CFR 395.8
         </text>
@@ -232,8 +232,8 @@ export default function LogSheet({ day, index, cycleUsed }) {
         ))}
 
         {/* ---- zone 3: remarks lane, ticked at each change x ---- */}
-        <text x={MARGIN.left} y={gridBottom() + 26} className="sheet-remarks">
-          REMARKS
+<text x={MARGIN.left} y={gridBottom() + 26} className="sheet-remarks">
+          Remarks
         </text>
         {remarks.map((r, i) => (
           <g key={i}>

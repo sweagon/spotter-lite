@@ -44,14 +44,14 @@ export default function ExplorePlanner() {
         <div className="topbar-brand">
           <LogoMark />
         </div>
-        <span className="topbar-label">trip planner</span>
-        <Link className="topbar-login" to="/login">sign in →</Link>
+        <span className="topbar-label">Trip planner</span>
+        <Link className="topbar-login" to="/login">Sign in →</Link>
       </header>
 
       <Board className="planner-shell"
         rail={
           <>
-            <p className="rail-hello">public planner</p>
+            <p className="rail-hello">Public planner</p>
             <PlannerForm onSubmit={plan} submitting={busy} />
           </>
         }
@@ -67,7 +67,7 @@ export default function ExplorePlanner() {
             <p className="empty-copy">Enter a pickup and drop-off to generate the route, hours and log sheets.</p>
           </div>
         )}
-        {busy && <p className="plan-busy">planning…</p>}
+        {busy && <p className="plan-busy">Planning…</p>}
         {result && (
           <PlanResults
             result={result}

@@ -30,13 +30,13 @@ export default function DutyControl({ current, onCommit, disabled }) {
   return (
     <div className="duty-card">
       <div className="duty-head">
-        <span className="rail-sub">duty status</span>
+        <span className="rail-sub">Duty status</span>
         {active ? (
           <span className={`duty-now duty-now--${active}`}>
             {current.location ? `${current.status_label} · ${current.location}` : current.status_label}
           </span>
         ) : (
-          <span className="duty-now duty-now--idle">no status set yet today</span>
+          <span className="duty-now duty-now--idle">No status set yet today</span>
         )}
       </div>
 
@@ -68,8 +68,8 @@ export default function DutyControl({ current, onCommit, disabled }) {
             autoFocus
           />
           <div className="duty-confirm-actions">
-            <button className="btn-mini" onClick={() => setConfirming(null)}>cancel</button>
-            <button className="btn-mini btn-mini--solid" onClick={confirm}>confirm</button>
+            <button className="btn-mini" onClick={() => setConfirming(null)}>Cancel</button>
+            <button className="btn-mini btn-mini--solid" onClick={confirm}>Confirm</button>
           </div>
         </div>
       )}

@@ -6,6 +6,12 @@ import Board from "../components/Board";
 
 const STATUSES = ["draft", "assigned", "en_route", "stopped", "delivered", "cancelled"];
 
+const humanize = (s) =>
+  s
+    .split("_")
+    .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w))
+    .join(" ");
+
 export default function DispatchBoard() {
   const [tab, setTab] = useState("trips");
   const [trips, setTrips] = useState([]);
@@ -108,30 +114,30 @@ export default function DispatchBoard() {
         <>
           <div className="rail-block">
             <button className="btn-plan btn-plan-wide" onClick={() => setPlanning((p) => !p)}>
-              {planning ? "‹ close planner" : "+ plan new trip"}
+              {planning ? "‹ Close Planner" : "+ Plan New Trip"}
             </button>
           </div>
 
           <section className="alerts-mini">
-            <h3 className="rail-sub">watchdog</h3>
+            <h3 className="rail-sub">Watchdog</h3>
             {alerts.length === 0 && <p className="trip-empty">No open flags.</p>}
             {alerts.map((a) => (
               <div key={a.id} className="alert-row">
                 <span className="alert-msg">
-                  <strong>{a.driver_name}</strong> · {a.rule.replace("_", " ")}
+                  <strong>{a.driver_name}</strong> · {humanize(a.rule)}
                 </span>
                 <button className="btn-mini" onClick={() => resolveAlert(a.id)}>
-                  clear
+                  Dismiss
                 </button>
               </div>
             ))}
           </section>
 
           <section>
-            <h3 className="rail-sub">fleet</h3>
+            <h3 className="rail-sub">Fleet</h3>
             <div className="fleet-mini">
-              <p className="fleet-line"><span>drivers</span><span className="num">{drivers.length}</span></p>
-              <p className="fleet-line"><span>vehicles</span><span className="num">{vehicles.length}</span></p>
+              <p className="fleet-line"><span>Drivers</span><span className="num">{drivers.length}</span></p>
+              <p className="fleet-line"><span>Vehicles</span><span className="num">{vehicles.length}</span></p>
             </div>
           </section>
         </>
@@ -146,13 +152,13 @@ export default function DispatchBoard() {
 
         <div className="board-filters">
           <button className={`chip ${tab === "trips" ? "chip-on" : ""}`} onClick={() => setTab("trips")}>
-            trips
+            Trips
           </button>
           <button className={`chip ${tab === "drivers" ? "chip-on" : ""}`} onClick={() => setTab("drivers")}>
-            drivers <span className="num">{drivers.length}</span>
+            Drivers <span className="num">{drivers.length}</span>
           </button>
           <button className={`chip ${tab === "vehicles" ? "chip-on" : ""}`} onClick={() => setTab("vehicles")}>
-            vehicles <span className="num">{vehicles.length}</span>
+            Vehicles <span className="num">{vehicles.length}</span>
           </button>
         </div>
 
@@ -161,20 +167,20 @@ export default function DispatchBoard() {
             <table className="admin-table">
               <thead>
                 <tr>
-                  <th>driver</th><th>role</th><th>truck</th><th>cycle</th><th>hours today</th><th>status</th><th />
+                  <th>Driver</th><th>Role</th><th>Truck</th><th>Cycle</th><th>Hours today</th><th>Status</th><th />
                 </tr>
               </thead>
               <tbody>
                 {drivers.map((d) => (
                   <tr key={d.id}>
                     <td className="num">{d.user.username}<br /><span className="muted">{d.user.first_name} {d.user.last_name}</span></td>
-                    <td data-label="role">{d.user.role.toLowerCase()}</td>
-                    <td data-label="truck" className="num">{d.vehicle_unit || "—"}</td>
-                    <td data-label="cycle" className="num">{d.cycle_used.toFixed(1)}h</td>
-                    <td data-label="hours today" className="num">{d.today_driving_hours.toFixed(1)}h</td>
-                    <td data-label="status">{d.active ? "active" : "off"}</td>
+                    <td data-label="Role">{d.user.role.toLowerCase()}</td>
+                    <td data-label="Truck" className="num">{d.vehicle_unit || "—"}</td>
+                    <td data-label="Cycle" className="num">{d.cycle_used.toFixed(1)}h</td>
+                    <td data-label="Hours today" className="num">{d.today_driving_hours.toFixed(1)}h</td>
+                    <td data-label="Status">{d.active ? "Active" : "Off"}</td>
                     <td className="table-actions">
-                      <button className="btn-mini" onClick={() => resetCycle(d.id)}>reset cycle</button>
+                      <button className="btn-mini" onClick={() => resetCycle(d.id)}>Reset cycle</button>
                     </td>
                   </tr>
                 ))}
@@ -188,17 +194,17 @@ export default function DispatchBoard() {
             <table className="admin-table">
               <thead>
                 <tr>
-                  <th>unit</th><th>type</th><th>vin</th><th>odometer</th><th>assigned to</th><th>status</th>
+                  <th>Unit</th><th>Type</th><th>VIN</th><th>Odometer</th><th>Assigned to</th><th>Status</th>
                 </tr>
               </thead>
               <tbody>
 {vehicles.map((v) => (
                   <tr key={v.id}>
                     <td className="num">{v.unit_no}</td>
-                    <td data-label="type">{v.vehicle_type}</td>
-                    <td data-label="vin" className="mono">{v.vin}</td>
-                    <td data-label="odometer" className="num">{v.odometer ? v.odometer.toLocaleString() : "—"} mi</td>
-                    <td data-label="assigned to">{v.assigned_driver_name || "—"}</td>
+                    <td data-label="Type">{v.vehicle_type}</td>
+                    <td data-label="VIN" className="mono">{v.vin}</td>
+                    <td data-label="Odometer" className="num">{v.odometer ? v.odometer.toLocaleString() : "—"} mi</td>
+                    <td data-label="Assigned to">{v.assigned_driver_name || "—"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -215,7 +221,7 @@ export default function DispatchBoard() {
                 assignable
                 drivers={drivers}
                 vehicles={vehicles}
-                submitLabel="Plan + assign"
+                submitLabel="Plan + Assign"
               />
             </div>
             <div className="plan-result-col">
@@ -238,11 +244,11 @@ export default function DispatchBoard() {
           <>
             <div className="board-filters">
               <button className={`chip ${statusFilter === "all" ? "chip-on" : ""}`} onClick={() => setStatusFilter("all")}>
-                all <span className="num">{trips.length}</span>
+                All <span className="num">{trips.length}</span>
               </button>
               {STATUSES.map((s) => (
                 <button key={s} className={`chip ${statusFilter === s ? "chip-on" : ""}`} onClick={() => setStatusFilter(s)}>
-                  {s} <span className="num">{trips.filter((t) => t.status === s).length}</span>
+                  {humanize(s)} <span className="num">{trips.filter((t) => t.status === s).length}</span>
                 </button>
               ))}
             </div>
@@ -261,7 +267,7 @@ export default function DispatchBoard() {
                         <strong>#{t.id}</strong> {t.pickup_location} → {t.dropoff_location}
                       </span>
                       <span className="board-card-meta num">
-                        {t.driver ? `${t.driver.user.username}` : "unstaffed"} · {t.vehicle ? t.vehicle.unit_no : "no unit"} · {t.distance_miles} mi
+                        {t.driver ? `${t.driver.user.username}` : "Unstaffed"} · {t.vehicle ? t.vehicle.unit_no : "No unit"} · {t.distance_miles} mi
                       </span>
                       <span className="board-expand">{open ? "▲" : "▼"}</span>
                     </div>
@@ -271,12 +277,12 @@ export default function DispatchBoard() {
                         <div className="board-actions">
                           {(nextStatus[t.status] || []).map((n) => (
                             <button key={n} className="btn-mini" onClick={() => advance(t, n)}>
-                              mark {n.replace("_", " ")}
+                              Mark {humanize(n)}
                             </button>
                           ))}
                           {t.status === "draft" && !t.driver && (
                             <button className="btn-mini" onClick={() => setPlanning(true)}>
-                              plan + assign
+                              Plan + Assign
                             </button>
                           )}
                         </div>

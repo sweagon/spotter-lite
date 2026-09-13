@@ -4,10 +4,10 @@ import { useAuth } from "../auth";
 import LogoMark from "../components/LogoMark";
 
 const DEMO_USERS = [
-  { label: "admin", user: "admin" },
-  { label: "dispatch", user: "dispatch" },
-  { label: "auditor", user: "auditor" },
-  { label: "driver", user: "danton" },
+  { label: "Admin", user: "admin" },
+  { label: "Dispatch", user: "dispatch" },
+  { label: "Auditor", user: "auditor" },
+  { label: "Driver", user: "danton" },
 ];
 
 export default function LoginView() {
@@ -45,12 +45,12 @@ export default function LoginView() {
         <div className="topbar-brand">
           <LogoMark />
         </div>
-        <span className="topbar-label">fleet · dispatch · logs</span>
+        <span className="topbar-label">Fleet · Dispatch · Logs</span>
       </header>
       <main className="login-main">
         <div className="login-hero">
           <h1>
-            your fleet,<br />planned down to the <em>minute</em>.
+            Your fleet,<br />planned down to the <em>minute</em>.
           </h1>
           <p>
             Plan loads against the 11 / 14 / 70 HOS rules before anyone leaves
@@ -61,15 +61,15 @@ export default function LoginView() {
             <div className="hero-kpis">
               <div className="hero-kpi">
                 <span className="num">11h</span>
-                <span>driving limit</span>
+                <span>Driving limit</span>
               </div>
               <div className="hero-kpi">
                 <span className="num">70h</span>
-                <span>cycle window</span>
+                <span>Cycle window</span>
               </div>
               <div className="hero-kpi">
                 <span className="num">24/7</span>
-                <span>duty tracking</span>
+                <span>Duty tracking</span>
               </div>
             </div>
           </div>
@@ -78,7 +78,7 @@ export default function LoginView() {
         <div className="login-card">
           <h1 className="login-title">Sign in to Spotter</h1>
           <p className="login-sub">
-            the same planner, now with your fleet behind it.
+            The same planner, now with your fleet behind it.
           </p>
 
           <form onSubmit={submit} className="login-form">
@@ -111,7 +111,7 @@ export default function LoginView() {
                   aria-label={show ? "Hide password" : "Show password"}
                   tabIndex={-1}
                 >
-                  {show ? "hide" : "show"}
+                  {show ? "Hide" : "Show"}
                 </button>
               </div>
             </label>
@@ -127,7 +127,7 @@ export default function LoginView() {
           </form>
 
           <div className="login-demo">
-            <span className="login-demo-title">demo accounts</span>
+            <span className="login-demo-title">Demo accounts</span>
             <div className="demo-chips">
               {DEMO_USERS.map((d) => (
                 <button
@@ -143,12 +143,12 @@ export default function LoginView() {
           </div>
 
           <a className="login-explore" href="/explore">
-            just exploring? use the public planner →
+            Just exploring? Use the public planner →
           </a>
         </div>
       </main>
       <footer className="login-foot">
-        dispatchers · drivers · hours of service
+        Dispatchers · Drivers · Hours of service
       </footer>
     </div>
   );

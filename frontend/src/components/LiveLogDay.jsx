@@ -16,7 +16,7 @@ export default function LiveLogDay({ day, cycleUsed, drivingHours }) {
         </div>
         <div className="live-log-stat num">
           <span className="live-log-stat-num">{drivingHours ?? 0}</span>
-          <span className="live-log-stat-label">driving hrs today</span>
+          <span className="live-log-stat-label">Driving hours today</span>
         </div>
       </div>
       <LogSheet day={day} index={0} cycleUsed={cycleUsed} />
