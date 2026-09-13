@@ -59,9 +59,9 @@ export default function AdminConsole() {
     if (ok) {
       setDForm(null);
       await load();
-      notify(dForm.editing ? `driver #${data.id} updated.` : `driver ${data.user.username} added.`);
+      notify(dForm.editing ? `Driver #${data.id} updated.` : `Driver ${data.user.username} added.`);
     } else {
-      setError(data?.error || "could not save driver.");
+      setError(data?.error || "We couldn't save the driver. Check the fields and try again.");
     }
   }
 
@@ -83,15 +83,15 @@ export default function AdminConsole() {
     if (ok) {
       setVForm(null);
       await load();
-      notify(vForm.editing ? `vehicle ${data.unit_no} updated.` : `vehicle ${data.unit_no} added.`);
+      notify(vForm.editing ? `Vehicle ${data.unit_no} updated.` : `Vehicle ${data.unit_no} added.`);
     } else {
-      setError(data?.error || "could not save vehicle.");
+      setError(data?.error || "We couldn't save the vehicle. Check the fields and try again.");
     }
   }
 
   async function resetCycle(id, done) {
     const { ok } = await apiJson(`/api/drivers/${id}/reset-cycle/`, { method: "POST", body: {} });
-    if (ok) { await load(); notify("cycle reset to 00:00."); }
+    if (ok) { await load(); notify(`Driver cycle reset to 00:00.`); }
     if (done) done();
   }
 
@@ -122,14 +122,14 @@ export default function AdminConsole() {
         {flash && <div className="toast">{flash}</div>}
         {error && (
           <div className="panel-error" role="alert">
-            <p className="panel-error-title">Could not save.</p>
+            <p className="panel-error-title">We couldn't save your changes.</p>
             <p>{error}</p>
           </div>
         )}
 
         {dForm && (
           <section className="admin-form">
-            <h2 className="admin-form-title">{dForm.editing ? `edit driver #${dForm.id}` : "add a driver"}</h2>
+            <h2 className="admin-form-title">{dForm.editing ? `Edit driver #${dForm.id}` : "Add a driver"}</h2>
             <div className="admin-form-grid">
               <label className="field">username
                 <input className="input-mini" disabled={dForm.editing} value={dForm.username}
@@ -185,7 +185,7 @@ export default function AdminConsole() {
 
         {vForm && (
           <section className="admin-form">
-            <h2 className="admin-form-title">{vForm.editing ? `edit vehicle ${vForm.unit_no}` : "add a vehicle"}</h2>
+            <h2 className="admin-form-title">{vForm.editing ? `Edit vehicle ${vForm.unit_no}` : "Add a vehicle"}</h2>
             <div className="admin-form-grid">
               <label className="field">unit no
                 <input className="input-mini" value={vForm.unit_no}
@@ -222,7 +222,7 @@ export default function AdminConsole() {
 
         {!dForm && !vForm && tab === "drivers" && (
           <div className="board-list">
-            <p className="board-subhead">drivers — add, edit, reset the 70-hour cycle.</p>
+            <p className="board-subhead">Manage your roster: add drivers, edit details, and reset the 70-hour cycle.</p>
             <button className="btn-mini" onClick={() => setDForm({ ...emptyDriverForm() })}>+ add driver</button>
             <table className="admin-table">
               <thead>
@@ -261,7 +261,7 @@ export default function AdminConsole() {
 
         {!dForm && !vForm && tab === "vehicles" && (
           <div className="board-list">
-            <p className="board-subhead">vehicles — keep the fleet's trucks straight.</p>
+            <p className="board-subhead">Keep the fleet straight: add vehicles and track odometer readings.</p>
             <button className="btn-mini" onClick={() => setVForm({ ...emptyVehicleForm() })}>+ add vehicle</button>
             <table className="admin-table">
               <thead>

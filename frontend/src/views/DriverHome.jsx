@@ -16,6 +16,13 @@ const SELF_PATCH = {
   cancelled: [],
 };
 
+const STATUS_LABEL = {
+  off_duty: "Off duty",
+  sleeper_berth: "Sleeper berth",
+  driving: "Driving",
+  on_duty_not_driving: "On duty (not driving)",
+};
+
 /** the driver cab: plan a load, ride it through the status flow (start /
  * rest / stop / deliver) and signal duty changes that draw today's live
  * RODS sheet. */
@@ -65,9 +72,9 @@ export default function DriverHome() {
       if (ok) {
         setResult(data);
         await refresh();
-        flash(`trip #${data.trip?.id} planned — when you roll, mark it Start and your log lines up.`);
+        flash(`Trip #${data.trip?.id} planned and saved. Mark it Start when you roll — your log sheet updates automatically.`);
       } else {
-        setError(data?.error || "Could not plan that trip.");
+        setError(data?.error || "We couldn't plan that trip. Check the pickup and drop-off, then try again.");
       }
     } finally {
       setBusy(false);
@@ -89,10 +96,10 @@ export default function DriverHome() {
     });
     if (ok) {
       setMe((m) => ({ ...m, duty: data }));
-      flash(`You're now ${status.replaceAll("_", " ")}.`);
+      flash(`Duty status set to ${STATUS_LABEL[status] ?? status.replaceAll("_", " ")}.`);
       return true;
     }
-    setError(data?.error || "Could not change duty status.");
+    setError(data?.error || "We couldn't update your duty status. Try again.");
     return false;
   }
 
@@ -113,9 +120,9 @@ export default function DriverHome() {
         setSelected(data);
         await commitDuty(dutyFor[next], "");
         await refresh();
-        flash(`Trip marked ${next.replaceAll("_", " ")}.`);
+        flash(`Trip marked ${(next.replaceAll("_", " "))}.`);
       } else {
-        setError(data?.error || "Could not update the trip.");
+        setError(data?.error || "We couldn't update the trip. Try again.");
       }
     } finally {
       setBusy(false);
@@ -200,7 +207,7 @@ export default function DriverHome() {
             <h3 className="rail-sub">my trips</h3>
             <div className="trip-list">
               {trips.length === 0 && (
-                <p className="trip-empty">no trips yet — the plan form starts one.</p>
+                <p className="trip-empty">No trips yet. Use the trip planner to create your first load.</p>
               )}
               {trips.slice(0, 15).map((t) => (
                 <button
@@ -252,7 +259,7 @@ export default function DriverHome() {
             )}
             {!todayDay && (
               <div className="empty">
-                <p className="empty-copy">set your first duty status and today's log sheet draws here.</p>
+                <p className="empty-copy">Set your first duty status and today's log sheet will draw here.</p>
               </div>
             )}
           </div>
@@ -262,7 +269,7 @@ export default function DriverHome() {
       {!selected && result && !planning && (
         <div className="results">
           <p className="plan-saved">
-            planner generated · trip saved as #{result.trip?.id} ·{" "}
+            Trip planned · saved as #{result.trip?.id} ·{" "}
             <button className="btn-mini" onClick={async () => { await openTrip(result.trip.id); }}>
               open to start it
             </button>
@@ -283,7 +290,7 @@ export default function DriverHome() {
           <div className="plan-result-col">
             {result && (
               <>
-                <p className="plan-saved">planner generated · trip saved as #{result.trip?.id}</p>
+                <p className="plan-saved">Trip planned · saved as #{result.trip?.id}</p>
                 <PlanResults
                   result={result}
                   pickup={result.trip?.pickup_location ?? "Pickup"}
@@ -292,7 +299,7 @@ export default function DriverHome() {
               </>
             )}
             {!result && (
-              <div className="empty"><p className="empty-copy">the route, gauges and logs land here.</p></div>
+              <div className="empty"><p className="empty-copy">Your route, hours gauges and log sheet will appear here once you plan a trip.</p></div>
             )}
           </div>
         </div>

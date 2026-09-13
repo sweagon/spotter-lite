@@ -58,13 +58,13 @@ export default function ExplorePlanner() {
       >
         {error && (
           <div className="panel-error" role="alert" style={{ marginBottom: 16 }}>
-            <p className="panel-error-title">Could not plan that trip.</p>
+            <p className="panel-error-title">We couldn't plan that trip.</p>
             <p>{error}</p>
           </div>
         )}
         {!result && !busy && (
           <div className="empty">
-            <p className="empty-copy">enter a trip to generate the route and logs.</p>
+            <p className="empty-copy">Enter a pickup and drop-off to generate the route, hours and log sheets.</p>
           </div>
         )}
         {busy && <p className="plan-busy">planning…</p>}

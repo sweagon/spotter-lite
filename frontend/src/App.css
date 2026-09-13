@@ -4,6 +4,15 @@
    ====================================================================== */
 
 /* ------------------------------------------------------------------ */
+/* keyboard focus: one crisp, consistent ring everywhere                */
+/* ------------------------------------------------------------------ */
+:focus-visible {
+  outline: 2px solid var(--coral-400);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* ------------------------------------------------------------------ */
 /* buttons & controls                                                   */
 /* ------------------------------------------------------------------ */
 .btn {
@@ -142,6 +151,21 @@
   display: flex;
   align-items: center;
   min-width: 0;
+}
+
+.logomark-img {
+  display: block;
+  width: auto;
+  height: 26px;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+}
+
+@media (max-width: 520px) {
+  .logomark-img {
+    height: 22px;
+  }
 }
 
 .logomark {

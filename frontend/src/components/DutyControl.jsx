@@ -36,7 +36,7 @@ export default function DutyControl({ current, onCommit, disabled }) {
             {current.location ? `${current.status_label} · ${current.location}` : current.status_label}
           </span>
         ) : (
-          <span className="duty-now duty-now--idle">no status set today</span>
+          <span className="duty-now duty-now--idle">no status set yet today</span>
         )}
       </div>
 
@@ -64,7 +64,7 @@ export default function DutyControl({ current, onCommit, disabled }) {
             type="text"
             value={note}
             onChange={(e) => setNote(e.target.value)}
-            placeholder="optional remark — e.g. ramp 4, DFW"
+            placeholder="Optional remark — e.g. Ramp 4, DFW"
             autoFocus
           />
           <div className="duty-confirm-actions">

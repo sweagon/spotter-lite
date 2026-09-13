@@ -186,6 +186,28 @@ Open `http://localhost:5173`. Unauthenticated visits land on `/login`;
 Geocoding and routing happen on the backend so no API keys ever reach the
 browser — both services are key-free anyway.
 
+## How Spotter compares to spotter.ai and Synergy ELD
+
+(Excluding the AI features both commercial products lead with, since Spotter has none.)
+
+| Capability | **Spotter** | **spotter.ai** | **Synergy ELD** |
+| --- | --- | --- | --- |
+| HOS planning before dispatch | Yes — 11/14/70 trip simulation, per-day log sheets | TMS dating/appointment logic, not planning-grade RODS | Primarily tracking, not pre-dispatch planning |
+| Live duty status in the cab | Yes — 4-state FMCSA duty log, 24h self-balancing RODS | Driver app records HOS once driving | Full ELD — GPS-linked, engine-linked events |
+| Compliance paperwork | Auditor safety view + one-click 395.8 log-sheet PDF packet | App + integration-led | Built-in roadside inspection view |
+| Fleet/watchdog alerts | Rule-based 70/11/14 watchdog flags, driver-facing | MVR/PSP *monitoring* (background checks) | ELD violation alerts + dashcam |
+| Driver/dispatch roles | Role-scoped UI (driver cab, dispatch board, auditor) | Driver app + fleet dashboard | Fleet + driver portals |
+| FMCSA hardware & licensing | **None** — planning-grade, no ELD certification | No hardware (app-based HOS assist) | **Yes** — certified devices installed per truck |
+| Cost model | Runs anywhere (Django/Vite, no API keys) | SaaS subscription | Hardware + monthly per-truck fees |
+
+Where Spotter punches above its size: the trip planner *designs a legal day*
+before anyone leaves the yard (the 10/10 rule tests exist for precisely this),
+the compliance packet is a single click, and the whole thing runs without a
+single API key or installed device. The honest gap is the big one: neither
+Spotter's duty log nor its watchdog is an FMCSA-certified ELD — a planning
+*guardrail* today, not an auditable electronic record, which is exactly why
+the roadmap's next step is a real GPS/ELD feed.
+
 ## Assumptions
 
 - **US only.** Nominatim requests are restricted with `countrycodes=us`.

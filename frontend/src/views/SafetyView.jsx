@@ -37,7 +37,7 @@ export default function SafetyView() {
     try {
       const resp = await api("/api/export/logs.pdf");
       if (!resp.ok) {
-        setExportError("no log sheets match yet — plan and save a trip first.");
+        setExportError("No log sheets to export yet. Plan and save a trip first.");
         return;
       }
       const blob = await resp.blob();
@@ -65,7 +65,7 @@ export default function SafetyView() {
           <p className="page-sub">read-only fleet posture — HOS watchdog, live loads, and the daily-log packet.</p>
         </div>
         <button className="btn-export" onClick={exportPdf} disabled={exporting}>
-          {exporting ? "packeting…" : "⤓ Download compliance packet (PDF)"}
+          {exporting ? "Processing…" : "⤓ Download compliance packet (PDF)"}
         </button>
       </div>
 
@@ -96,7 +96,7 @@ export default function SafetyView() {
 
       <section className="safety-section">
         <h2 className="rail-sub">Watchdog flags</h2>
-        {openAlerts.length === 0 && <p className="trip-empty">no open HOS flags — the fleet is inside its planning guardrails.</p>}
+        {openAlerts.length === 0 && <p className="trip-empty">No open HOS flags. Every driver is inside the planning guardrails.</p>}
         {openAlerts.map((a) => (
           <div key={a.id} className="alert-row">
             <span className="alert-msg">
@@ -120,7 +120,7 @@ export default function SafetyView() {
           </thead>
           <tbody>
             {drivers.length === 0 && (
-              <tr><td className="trip-empty" colSpan={4}>no active drivers.</td></tr>
+              <tr><td className="trip-empty" colSpan={4}>No active drivers yet.</td></tr>
             )}
             {drivers.map((d) => (
               <tr key={d.id}>
@@ -140,7 +140,7 @@ export default function SafetyView() {
 
       <section className="safety-section">
         <h2 className="rail-sub">Live loads &amp; logs</h2>
-        {trips.length === 0 && <p className="trip-empty">no trips saved yet.</p>}
+        {trips.length === 0 && <p className="trip-empty">No trips saved yet.</p>}
         {trips.slice(0, 30).map((t) => {
           const open = expanded?.id === t.id;
           return (
@@ -160,7 +160,7 @@ export default function SafetyView() {
                   {t.daily_logs?.length > 0 ? (
                     <PlanResults result={t} pickup={t.pickup_location} dropoff={t.dropoff_location} />
                   ) : (
-                    <p className="trip-empty">draft — not planned yet.</p>
+                    <p className="trip-empty">Draft — not planned yet.</p>
                   )}
                 </div>
               )}

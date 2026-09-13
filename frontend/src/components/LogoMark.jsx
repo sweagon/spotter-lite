@@ -1,31 +1,19 @@
 /**
- * the spotter mark: three dots (coral / teal / pale mint) + the lowercase
- * wordmark. drawn inline so it's crisp at any size and pulls the exact
- * brand colors — no raster, no unknown-bg png to fight.
+ * the spotter mark, straight from the brand files (logo.png): a horizontal
+ * teal/coral lockup on a transparent background. rendered as an <img> so it
+ * swaps in exactly as designed.
  */
-export default function LogoMark({ wordmark = true, size = 20 }) {
-  const gap = size * 0.45;
-  const total = size * 3 + gap * 2;
-  const colors = ["#f84960", "#008080", "#bcddde"];
+import logo from "../assets/logo.png";
+
+export default function LogoMark({ height = 26 }) {
   return (
-    <span className="logomark">
-      <svg
-        width={total}
-        height={size}
-        viewBox={`0 0 ${total} ${size}`}
-        aria-hidden="true"
-      >
-        {colors.map((c, i) => (
-          <circle
-            key={c}
-            cx={i * (size + gap) + size / 2}
-            cy={size / 2}
-            r={size / 2}
-            fill={c}
-          />
-        ))}
-      </svg>
-      {wordmark && <span className="wordmark">spotter</span>}
-    </span>
+    <img
+      src={logo}
+      alt="Spotter"
+      height={height}
+      className="logomark-img"
+      decoding="async"
+      draggable={false}
+    />
   );
 }

@@ -1,9 +1,9 @@
 """duty-status helpers shared by the API and the watchdog.
 
-a driver's record of duty status for *today* is drawn from DutyEvent rows:
-the open event plus everything since local midnight, padded with off duty at
-both ends so the four graph rows sum to 24 hours like the paper 395.8 sheet.
-planning-grade, not an engine-linked ELD record.
+A driver's record of duty status for *today* is drawn from DutyEvent rows:
+the open event plus everything since local midnight, padded with off duty
+at both ends so the four graph rows sum to 24 hours like the paper 395.8
+sheet. Planning-grade, not an engine-linked ELD record.
 """
 
 from django.utils import timezone
@@ -83,7 +83,7 @@ def _mm_to_hm(minutes):
 
 
 def today_totals(segments):
-    """round to the fourth but keep exact 24: drive etc from the segments,
+    """Round to the fourth but keep exact 24: driving etc from the segments,
     off duty fills the remainder."""
     hours = {"driving": 0.0, "sleeper_berth": 0.0, "on_duty_not_driving": 0.0}
     for s in segments:
@@ -95,7 +95,7 @@ def today_totals(segments):
 
 
 def today_driving_hours(driver):
-    """completed + in-progress driving today (seconds->hours)."""
+    """Completed + in-progress driving today (seconds -> hours)."""
     day_start = start_of_today()
     now = timezone.now()
     total = 0.0
@@ -109,3 +109,65 @@ def today_driving_hours(driver):
             continue
         total += (end - ev["started_at"]).total_seconds()
     return round(total / 3600.0, 2)
+
+
+ON_DUTY_STATUSES = ("driving", "on_duty_not_driving")
+REST_STATUSES = ("off_duty", "sleeper_berth")
+REST_MINUTES = 10 * 60  # 10 consecutive hours off duty resets 14h window
+
+
+def compliance_state(driver):
+    """where this driver stands against the FMCSA caps *right now*:
+
+    - driving_hours_today    -> toward the 11h driving limit
+    - window_on_duty_hours   -> toward the 14h duty window (does not pause
+                                for short breaks, per 395.2)
+    - on_duty_today_hours    -> toward the declared 70h/8-day cycle
+    - window_started_at      -> when the current 14h window began (or None)
+
+    a 10h+ uninterrupted run of off-duty/sleeper-berth resets the window the
+    next moment the driver comes back on duty. everything is derived from
+    DutyEvent rows only — there is no client-supplied number here.
+    """
+    day_start = start_of_today()
+    now = timezone.now()
+    events = list(
+        DutyEvent.objects.filter(driver=driver, started_at__gte=day_start)
+        .order_by("started_at")
+    )
+
+    driving_minutes = 0.0
+    on_duty_today_minutes = 0.0
+    window_on_duty_minutes = 0.0
+    window_started_at = None
+    consecutive_off_minutes = 0.0
+
+    for ev in events:
+        start = max(ev.started_at, day_start)
+        end = min(ev.ended_at or now, now)
+        if end <= start:
+            continue
+        minutes = (end - start).total_seconds() / 60
+
+        if ev.status in REST_STATUSES:
+            consecutive_off_minutes += minutes
+            continue
+
+        # on-duty moment: if the off-duty run before it was long enough, this
+        # is a fresh 14h window; otherwise the old window just keeps running.
+        if consecutive_off_minutes >= REST_MINUTES:
+            window_started_at = start
+            window_on_duty_minutes = 0.0
+        consecutive_off_minutes = 0.0
+
+        if ev.status == "driving":
+            driving_minutes += minutes
+        on_duty_today_minutes += minutes
+        window_on_duty_minutes += minutes
+
+    return {
+        "driving_hours_today": round(driving_minutes / 60.0, 2),
+        "window_on_duty_hours": round(window_on_duty_minutes / 60.0, 2),
+        "on_duty_today_hours": round(on_duty_today_minutes / 60.0, 2),
+        "window_started_at": window_started_at,
+    }

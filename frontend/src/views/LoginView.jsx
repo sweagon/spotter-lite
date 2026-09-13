@@ -27,7 +27,7 @@ export default function LoginView() {
       const user = await login(username.trim(), password);
       navigate(user.role === "Dispatcher" ? "/dispatch" : "/", { replace: true });
     } catch (err) {
-      setError(err.message || "Login failed.");
+      setError(err.message || "We couldn't sign you in. Check your credentials and try again.");
     } finally {
       setBusy(false);
     }
@@ -117,7 +117,7 @@ export default function LoginView() {
             </label>
             {error && (
               <div className="panel-error" role="alert">
-                <p className="panel-error-title">Could not sign in.</p>
+                <p className="panel-error-title">We couldn't sign you in.</p>
                 <p>{error}</p>
               </div>
             )}

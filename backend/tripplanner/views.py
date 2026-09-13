@@ -18,7 +18,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.views import TokenObtainPairView
 
-from . import duty
+from . import duty, regs
 from .models import Alert, DailyLog, Driver, DutyEvent, Trip, TripEvent, Vehicle
 from .permissions import IsDispatcher
 from .pdf_export import build_logs_pdf
@@ -37,6 +37,40 @@ from .serializers import (
 User = get_user_model()
 
 logger = logging.getLogger("tripplanner")
+
+
+def _coerce_cycle(value):
+    """70-hour / 8-day balance from a client value: must be a real number,
+    clamped to the legal 0-70 band. everything the planner and watchdog read
+    from this field has to stay inside the regulation."""
+    try:
+        hours = float(value)
+    except (TypeError, ValueError):
+        raise ValueError("cycle balance must be a number of hours")
+    return min(70.0, max(0.0, hours))
+
+
+def _coerce_odometer(value):
+    """vehicle odometer reading, miles: non-negative integer or cleared.
+    garbage in here would poison every compliance-mileage report, so we
+    refuse anything that isn't a plain non-negative number."""
+    if value in (None, ""):
+        return None
+    try:
+        miles_f = float(value)
+    except (TypeError, ValueError):
+        raise ValueError("odometer must be a whole number of miles")
+    if not miles_f.is_integer():
+        raise ValueError("odometer must be a whole number of miles")
+    miles = int(miles_f)
+    if miles < 0:
+        raise ValueError("odometer cannot be negative")
+    return miles
+
+
+def _nz(value):
+    """trim + normalize a string from a form field (empty -> '')."""
+    return (value or "").strip()
 
 
 class HealthView(APIView):
@@ -311,6 +345,33 @@ class DutyEventCreateView(APIView):
             return Response({"error": "invalid duty status"},
                             status=status.HTTP_400_BAD_REQUEST)
 
+        # coming OFF duty / into the sleeper is always allowed — that's how
+        # a driver fixes an over-limit day. going back ON duty when a cap is
+        # already consumed is refused, with the regulation quoted, so a
+        # driver can't "work around" the rules by back-filling statuses.
+        if status_value in duty.ON_DUTY_STATUSES:
+            state = duty.compliance_state(profile)
+            if state["on_duty_today_hours"] >= 70.0 - profile.cycle_used or \
+                    profile.cycle_used >= 70.0:
+                msg = regs.violation(
+                    "cycle_70", state["on_duty_today_hours"] + profile.cycle_used, 70.0,
+                    extra=f"cycle balance on record: {profile.cycle_used:.1f}h.",
+                )
+                return Response({"error": msg}, status=status.HTTP_400_BAD_REQUEST)
+            if state["window_on_duty_hours"] >= 14.0:
+                msg = regs.violation(
+                    "duty_14", state["window_on_duty_hours"], 14.0,
+                    extra=f"this driver's current on-duty window started at "
+                          f"{state['window_started_at'].strftime('%H:%M') if state['window_started_at'] else 'midnight'}.",
+                )
+                return Response({"error": msg}, status=status.HTTP_400_BAD_REQUEST)
+            if status_value == "driving" and state["driving_hours_today"] >= 11.0:
+                msg = regs.violation(
+                    "drive_11", state["driving_hours_today"], 11.0,
+                    extra="start a 10-hour rest, then the 11-hour clock resets.",
+                )
+                return Response({"error": msg}, status=status.HTTP_400_BAD_REQUEST)
+
         open_ev = duty.open_event(profile)
         if open_ev and open_ev.status == status_value:
             return Response(
@@ -455,9 +516,13 @@ class DriverDetailView(APIView):
                     return Response({"error": "that vehicle is already assigned"},
                                     status=status.HTTP_400_BAD_REQUEST)
                 driver.vehicle = vehicle
-        for field in ("cdl_number", "cycle_used"):
-            if field in request.data:
-                setattr(driver, field, request.data[field])
+        if "cdl_number" in request.data:
+            driver.cdl_number = _nz(request.data["cdl_number"])[:30]
+        if "cycle_used" in request.data:
+            try:
+                driver.cycle_used = _coerce_cycle(request.data["cycle_used"])
+            except ValueError as e:
+                return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         if "active" in request.data:
             driver.active = bool(request.data["active"])
         driver.save()
@@ -523,11 +588,15 @@ class VehicleListView(APIView):
         if Vehicle.objects.filter(unit_no=unit_no).exists():
             return Response({"error": "unit no already in the fleet"},
                             status=status.HTTP_400_BAD_REQUEST)
+        try:
+            odometer = _coerce_odometer(request.data.get("current_odometer"))
+        except ValueError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         vehicle = Vehicle.objects.create(
             unit_no=unit_no,
             vin=(request.data.get("vin") or "").strip(),
             vehicle_type=request.data.get("vehicle_type") or "sleeper",
-            current_odometer=request.data.get("current_odometer"),
+            current_odometer=odometer,
         )
         return Response(VehicleSerializer(vehicle).data, status=status.HTTP_201_CREATED)
 
@@ -563,9 +632,14 @@ class VehicleDetailView(APIView):
         except Vehicle.DoesNotExist:
             return Response({"error": "no such vehicle"}, status=status.HTTP_404_NOT_FOUND)
         updates = {}
-        for field in ("vin", "vehicle_type", "current_odometer"):
+        for field in ("vin", "vehicle_type"):
             if field in request.data:
-                updates[field] = request.data[field]
+                updates[field] = (request.data[field] or "").strip()
+        if "current_odometer" in request.data:
+            try:
+                updates["current_odometer"] = _coerce_odometer(request.data["current_odometer"])
+            except ValueError as e:
+                return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         if "active" in request.data:
             updates["active"] = bool(request.data["active"])
         if "unit_no" in request.data and request.data["unit_no"]:
@@ -597,7 +671,10 @@ class CreateDriverView(APIView):
         first_name = (request.data.get("first_name") or "").strip()
         last_name = (request.data.get("last_name") or "").strip()
         vehicle_id = request.data.get("vehicle_id")
-        cycle_used = float(request.data.get("cycle_used") or 0)
+        try:
+            cycle_used = _coerce_cycle(request.data.get("cycle_used") or 0)
+        except ValueError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         if not username or not password:
             return Response({"error": "username and password are required"},
@@ -775,9 +852,14 @@ class TripDetailView(APIView):
                     return Response({"error": "no such vehicle"},
                                     status=status.HTTP_400_BAD_REQUEST)
 
-        for field in ("actual_pickup_at", "actual_delivery_at", "actual_miles"):
+        for field in ("actual_pickup_at", "actual_delivery_at"):
             if field in request.data:
                 updates[field] = request.data[field]
+        if "actual_miles" in request.data:
+            try:
+                updates["actual_miles"] = _coerce_odometer(request.data["actual_miles"])
+            except ValueError as e:
+                return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         for k, v in updates.items():
             setattr(trip, k, v)

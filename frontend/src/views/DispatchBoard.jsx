@@ -60,7 +60,7 @@ export default function DispatchBoard() {
         setResult(data);
         loadAll();
       } else {
-        setError(data?.error || "Could not plan that trip.");
+        setError(data?.error || "We couldn't plan that trip. Check the details and try again.");
       }
     } finally {
       setBusy(false);
@@ -114,7 +114,7 @@ export default function DispatchBoard() {
 
           <section className="alerts-mini">
             <h3 className="rail-sub">watchdog</h3>
-            {alerts.length === 0 && <p className="trip-empty">no open flags.</p>}
+            {alerts.length === 0 && <p className="trip-empty">No open flags.</p>}
             {alerts.map((a) => (
               <div key={a.id} className="alert-row">
                 <span className="alert-msg">
@@ -139,7 +139,7 @@ export default function DispatchBoard() {
     >
       {error && (
           <div className="panel-error" role="alert">
-            <p className="panel-error-title">Could not plan that trip.</p>
+            <p className="panel-error-title">We couldn't plan that trip.</p>
             <p>{error}</p>
           </div>
         )}
@@ -229,7 +229,7 @@ export default function DispatchBoard() {
                   />
                 </>
               )}
-              {!result && <div className="empty"><p className="empty-copy">the planned trip, gauges and logs land here.</p></div>}
+              {!result && <div className="empty"><p className="empty-copy">Your planned trip, hours gauges and log sheet will appear here.</p></div>}
             </div>
           </div>
         )}
@@ -249,7 +249,7 @@ export default function DispatchBoard() {
 
             <div className="board-list">
               {visible.length === 0 && (
-                <p className="trip-empty">nothing here — plan the next load.</p>
+                <p className="trip-empty">No trips match yet. Plan the next load to get moving.</p>
               )}
               {visible.map((t) => {
                 const open = expanded?.id === t.id;
@@ -284,7 +284,7 @@ export default function DispatchBoard() {
                           <PlanResults result={t} pickup={t.pickup_location} dropoff={t.dropoff_location} />
                         )}
                         {!t.daily_logs?.length && (
-                          <p className="trip-empty">draft — not planned yet.</p>
+                          <p className="trip-empty">Draft — not planned yet.</p>
                         )}
                       </div>
                     )}

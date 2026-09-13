@@ -15,6 +15,7 @@ from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 
+from . import duty
 from .hos_engine import (
     plan_trip,
     slice_into_days,
@@ -1050,3 +1051,135 @@ class AdminCrudTests(TestCase):
         self.client.force_authenticate(self.audit)
         resp = self.client.post(f"/api/drivers/{self.driver.id}/reset-cycle/", {}, format="json")
         self.assertEqual(resp.status_code, 403)
+
+
+class RegComplianceDutyTests(TestCase):
+    """a driver cannot *legally* declare an on-duty status that the current
+    record of duty status already rules out. the endpoint refuses and quotes
+    the exact 49 CFR line, so no one can work around the caps by logging
+    statuses they have no hours left to drive for."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.driver_user = User.objects.create_user(
+            username="hank", password="pw", role="driver"
+        )
+        self.driver = Driver.objects.create(user=self.driver_user)
+        # pin "now" to 14:00 local today so the compliance math is exact and
+        # doesn't drift with whatever minute the test runner hits.
+        self.midnight = duty.start_of_today()
+        self.midday = self.midnight.replace(hour=14, minute=0, second=0)
+        patcher = mock.patch("tripplanner.duty.timezone.now",
+                             return_value=self.midday)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _ev(self, status, start, end=None, location="I-40"):
+        DutyEvent.objects.create(
+            driver=self.driver, status=status, started_at=start,
+            ended_at=end, location=location,
+        )
+
+    def _post(self, status):
+        return self.client.post("/api/duty/events/", {"status": status}, format="json")
+
+    def test_11h_cap_blocks_another_driving_start(self):
+        # 12h of driving since midnight, then an open off-duty break; the
+        # driver tries to log more driving -> refused with the 395.3(a)(1) line
+        self._ev("driving", self.midnight, self.midnight + timedelta(hours=12))
+        self._ev("off_duty", self.midnight + timedelta(hours=12), self.midday)
+        self.client.force_authenticate(self.driver_user)
+        resp = self._post("driving")
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("49 CFR", resp.data["error"])
+        self.assertIn("395.3(a)(1)", resp.data["error"])
+
+    def test_14h_window_blocks_more_on_duty(self):
+        # 8h driving then 6h on-duty-not-driving with no 10h rest: the on-duty
+        # window has run 14h by 14:00, so more on-duty time is refused.
+        self._ev("driving", self.midnight, self.midnight + timedelta(hours=8))
+        self._ev("on_duty_not_driving", self.midnight + timedelta(hours=8),
+                 self.midday)
+        self.client.force_authenticate(self.driver_user)
+        resp = self._post("driving")
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("395.3(a)(2)", resp.data["error"])
+
+    def test_70h_cycle_blocks_on_duty_when_balance_full(self):
+        # 68h on the declared 8-day balance + 13h of duty so far today is
+        # already a 70+ day; the driver cannot log more on-duty time.
+        self.driver.cycle_used = 68.0
+        self.driver.save()
+        self._ev("driving", self.midnight, self.midnight + timedelta(hours=13))
+        self._ev("off_duty", self.midnight + timedelta(hours=13), self.midday)
+        self.client.force_authenticate(self.driver_user)
+        resp = self._post("driving")
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("395.3(b)(1)", resp.data["error"])
+
+    def test_going_off_duty_is_always_allowed(self):
+        # a driver blown right past every cap can still log OFF duty / sleeper
+        self.driver.cycle_used = 70.0
+        self.driver.save()
+        self._ev("driving", self.midnight, self.midday)
+        self.client.force_authenticate(self.driver_user)
+        for status in ("off_duty", "sleeper_berth"):
+            with self.subTest(status=status):
+                self.assertEqual(self._post(status).status_code, 201)
+
+
+class SafeTypeTests(TestCase):
+    """garbage in any numeric field must fail with a 400 and a sane message,
+    never a 500 — someone poking the API with strings/absurd values doesn't
+    get to corrupt the fleet record."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.admin = User.objects.create_user(
+            username="root", password="pw", role="admin"
+        )
+        self.disp = User.objects.create_user(
+            username="dex", password="pw", role="dispatcher"
+        )
+        self.driver_user = User.objects.create_user(
+            username="dora", password="pw", role="driver"
+        )
+        self.driver = Driver.objects.create(user=self.driver_user)
+        self.v1 = Vehicle.objects.create(unit_no="V-1")
+
+    def test_cycle_used_clamped_to_legal_band(self):
+        self.client.force_authenticate(self.admin)
+        status = self.client.patch(f"/api/drivers/{self.driver.id}/",
+                                   {"cycle_used": 9999}, format="json").status_code
+        self.assertEqual(status, 200)
+        self.driver.refresh_from_db()
+        self.assertEqual(self.driver.cycle_used, 70.0)
+
+    def test_cycle_used_must_be_numeric(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.patch(f"/api/drivers/{self.driver.id}/",
+                                 {"cycle_used": "banana"}, format="json")
+        self.assertEqual(resp.status_code, 400)
+
+    def test_vehicle_odometer_must_be_non_negative_int(self):
+        self.client.force_authenticate(self.admin)
+        for bad in ("abc", -5, 12.7):
+            resp = self.client.post("/api/vehicles/",
+                                    {"unit_no": f"V-{bad}",
+                                     "current_odometer": bad}, format="json")
+            self.assertEqual(resp.status_code, 400)
+
+    def test_create_driver_cycle_must_be_numeric(self):
+        self.client.force_authenticate(self.disp)
+        resp = self.client.post("/api/drivers/create/",
+                                {"username": "newbie", "password": "x",
+                                 "cycle_used": "lots"}, format="json")
+        self.assertEqual(resp.status_code, 400)
+
+    def test_create_driver_clamps_cycle(self):
+        self.client.force_authenticate(self.disp)
+        resp = self.client.post("/api/drivers/create/",
+                                {"username": "newbie2", "password": "x",
+                                 "cycle_used": 300}, format="json")
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(User.objects.get(username="newbie2").driver_profile.cycle_used, 70.0)
