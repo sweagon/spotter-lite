@@ -16,3 +16,6 @@ frontend/dist/
 # misc
 .DS_Store
 *.log
+
+# presenter-only: the narrator's recording script stays out of the repo
+LOOM_SCRIPT.md
