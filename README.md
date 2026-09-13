@@ -8,7 +8,9 @@ federal hours-of-service rules, and generates the daily driver's logs
 driver/dispatcher lifecycle with a watchdog that flags drivers approaching
 or breaching their hours.
 
-Live demo: **TODO-frontend-url** · API: **TODO-backend-url**
+Live demo URLs (frontend on Vercel, API on Render) can be dropped in here
+when pinned; for now it runs fully locally — see **Running locally** below.
+No API keys required.
 
 ---
 
@@ -97,9 +99,9 @@ python manage.py runserver 0.0.0.0:8000
 ```
 
 Demo accounts: `dispatch` (dispatcher), `auditor` (auditor), `danton` /
-`bmiles` (drivers), `admin` (superuser) — all password `spotter123`. Full
-roster (incl. other dispatchers and drivers on varied cycle balances) in
-`users.txt`.
+`bmiles` (drivers), `admin` (superuser) — all password `spotter123`. The
+full roster — two admins, three dispatchers, an auditor, and five drivers
+on varied cycle balances — is seeded by `python manage.py seed_demo`.
 
 The stateless calculator (public):
 
@@ -136,9 +138,9 @@ Watchdog test:
 python manage.py watch_hos
 ```
 
-Run the test suite (**72 tests**: engine rules, API, auth, permissions, trip
+Run the test suite (**81 tests**: engine rules, API, auth, permissions, trip
 persistence, watchdog + debounce, audit events, auditor read-only, PDF export,
-duty events, driver self-PATCH, admin CRUD):
+duty events + reg safety, driver self-PATCH, admin CRUD):
 
 ```bash
 python manage.py test tripplanner
@@ -149,6 +151,12 @@ dispatcher tabs, auditor safety):
 
 ```bash
 node frontend/e2e/smoke.mjs
+```
+
+Mobile viewport suite (**6 checks**, 390×844):
+
+```bash
+node frontend/e2e/mobile.mjs
 ```
 
 ### Frontend (React + Vite + Leaflet)

@@ -1,11 +1,11 @@
 """
 seed_demo - idempotent demo data for local dev and the Render first-run.
 
-creates every account in users.txt: an admin superuser, org admins,
-dispatchers, drivers (each tied to a vehicle with a varied 70-hour cycle
-balance) and a read-only auditor for the safety view. works with default
-passwords so a reviewer (or the walkthrough) can log straight in; change
-them in production.
+creates the demo roster below: an admin superuser, org admins, dispatchers,
+drivers (each tied to a vehicle with a varied 70-hour cycle balance) and a
+read-only auditor for the safety view. works with default passwords so a
+reviewer (or the walkthrough) can log straight in; change them in
+production.
 
     python manage.py seed_demo
 """

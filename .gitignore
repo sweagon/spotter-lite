@@ -16,8 +16,3 @@ frontend/dist/
 # misc
 .DS_Store
 *.log
-
-# reference material for the assessment (not part of the app)
-*.pdf
-*.docx
-*.png

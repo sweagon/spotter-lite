@@ -5,7 +5,7 @@
 ## Version & build history
 
 - **Version:** `0.0.0` (frontend `package.json`; backend has no version file) — i.e. **pre-1.0 internal prototype**. Deployable to Render (Postgres + API + hourly cron) and Vercel/static.
-- **Build timeline:** all commits (12) are dated **2026-09-11** — one continuous build session across three eras:
+- **Build timeline:** the repo history reads as one continuous build session across three eras:
   1. FMCSA engine + public assessment prototype.
   2. Brand redesign (petrol/coral/mint system, contrast-derived tokens).
   3. Company-ready org layer (auth, fleet, watchdog, log-grid fidelity) + this spec pass.
@@ -30,7 +30,7 @@
 - **Auditors**: read-only `/safety` view — fleet posture KPIs, open HOS flags, drivers table, live load board, and a **one-click compliance packet** (`/api/export/logs.pdf`, ScopedRateThrottle `export`).
 - **Admin**: the SPA **AdminConsole** (`/admin`) for fleet management — drivers CRUD (add, edit name/role/truck/CDL/cycle/active), vehicles CRUD (add, edit VIN/type/odometer/active), and cycle-reset; plus Django admin for every model.
 - Route guards in the SPA (`/login`, `/`, `/dispatch`, `/admin`, `/safety`, `/explore`); tokens in localStorage (documented trade-off).
-- Demo seed: 11 test users (2 admin / 3 dispatcher / 1 auditor / 5 drivers) on trucks D-1…D-5 with varied cycle balances — documented in `users.txt` (password `spotter123`).
+- Demo seed: 11 test users (2 admin / 3 dispatcher / 1 auditor / 5 drivers) on trucks D-1…D-5 with varied cycle balances — `python manage.py seed_demo` (password `spotter123`).
 
 ### 4. HOS watchdog ("tracker agent")
 - `manage.py watch_hos` — hourly planning guardrail projecting each driver's position from declared cycle + latest live plan; idempotent alerts for **drive-11 / duty-14 / cycle-70 / over-hours**, resolveable from the board; honest framing (planning-derived hours, not an ELD record) with an hourly cron in `render.yaml`.
@@ -54,7 +54,7 @@
 - **Postgres** via `DATABASE_URL` (sqlite fallback), fail-closed CORS, throttling (`plan` 20/hr, `suggest` 60/min, `export` 30/min), `/api/health/` DB ping, whitenoise static serving.
 - **OpenAPI**: `drf-spectacular` schema at `/api/schema/` + Swagger UI `/api/docs/` (0 schema errors; serializer `SerializerMethodField` type-hint warnings are cosmetic).
 - **PDF compliance packet** (`backend/tripplanner/pdf_export.py`): reportlab-built, role-scoped — dispatchers/admins/auditors any driver, drivers only their own runs; dips to 404 when nothing drawn.
-- **72 Django tests** (engine + auth + permissions + persistence + watchdog + debounce + audit + auditor read-only + PDF export + driver duty/self-PATCH/admin CRUD) and **8 frontend geometry spec tests** all passing; **10-point desktop Playwright suite** (`frontend/e2e/smoke.mjs`) + **6-point mobile suite** (`frontend/e2e/mobile.mjs`, 390×844; set `PW_VIEWPORT=390x844` to run smoke at mobile too) covering the driver cab, drawer nav, admin console CRUD, dispatcher fleet tabs, auditor safety view, and login demo chips with zero JS errors.
+- **81 Django tests** (engine + auth + permissions + persistence + watchdog + debounce + audit + auditor read-only + PDF export + duty/reg-safety + driver self-PATCH/admin CRUD) and **8 frontend geometry spec tests** all passing; **10-point desktop Playwright suite** (`frontend/e2e/smoke.mjs`) + **6-point mobile suite** (`frontend/e2e/mobile.mjs`, 390×844; set `PW_VIEWPORT=390x844` to run smoke at mobile too) covering the driver cab, drawer nav, admin console CRUD, dispatcher fleet tabs, auditor safety view, and login demo chips with zero JS errors.
 - **CI** (`.github/workflows/ci.yml`): backend tests + OpenAPI composition check (sqlite), frontend `npm ci` + tests + lint + build on every push/PR.
 
 ## Known limits (by design)
