@@ -1,7 +1,9 @@
 # Render blueprint — spotter backend Django API.
 # Push this repo to GitHub, New -> Blueprint -> pick this file.
-# Attaches: a managed Postgres, the API web service, and the hourly
-# HOS-watchdog cron. The React frontend deploys to Vercel (see ../vercel.json).
+# Attaches: a managed Postgres and the API web service.
+# The hourly HOS-watchdog runs as a free GitHub Actions cron
+# (.github/workflows/watchdog.yml), not a Render cron (no free tier).
+# The React frontend deploys to Vercel (see ../vercel.json).
 databases:
   - name: spotter-db
     plan: free
@@ -31,21 +33,3 @@ services:
       # only the org's real frontend origins below; never flip allow-all in prod
       - key: CORS_ALLOWED_ORIGINS
         value: "https://spotter-trip-planner.vercel.app,https://spotter-trip-planner-git-main-morpheusout.vercel.app"
-
-  - type: cron
-    name: spotter-hos-watch
-    runtime: python
-    rootDir: backend
-    plan: free
-    schedule: "0 * * * *"
-    buildCommand: "pip install -r requirements.txt"
-    startCommand: "python manage.py watch_hos"
-    envVars:
-      - key: DATABASE_URL
-        fromDatabase:
-          name: spotter-db
-          property: connectionString
-      - key: DJANGO_SECRET_KEY
-        generateValue: true
-      - key: DJANGO_DEBUG
-        value: "False"

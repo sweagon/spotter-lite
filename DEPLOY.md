@@ -14,17 +14,17 @@ git remote add origin git@github.com:YOUR_USERNAME/spotter.git
 git push -u origin main
 ```
 
-The render blueprint creates three things in one go: a Postgres database,
-the API web service, and the hourly HOS-watchdog cron.
+The render blueprint creates two things in one go: a Postgres database and
+the API web service. The hourly HOS-watchdog runs as a free GitHub Actions
+schedule instead (Render offers no free cron tier — see section 2b).
 
 ## 2. Backend on Render (blueprint)
 
 1. Render dashboard → **New → Blueprint** → pick the GitHub repo → it reads
    `render.yaml` automatically.
-2. Confirm the three resources it creates:
+2. Confirm the two resources it creates:
    - **spotter-db** (Postgres, free)
    - **spotter-backend** (web service)
-   - **spotter-hos-watch** (scheduled `0 * * * *`)
 3. After the first build, run the one-time seed so there are accounts to log
    into. In the Render dashboard, **spotter-backend → Shell**, then:
    ```bash
@@ -42,6 +42,22 @@ the API web service, and the hourly HOS-watchdog cron.
 
 > Never set `DJANGO_CORS_ALLOW_ALL=True` in prod — protected org endpoints
 > come CORS-locked by default now.
+
+## 2b. Watchdog on GitHub Actions (free)
+
+The hourly watchdog (`python manage.py watch_hos`) runs as a GitHub Actions
+schedule (`.github/workflows/watchdog.yml`), not a Render cron — Render only
+sells paid plans for cron jobs.
+
+1. Render dashboard → **spotter-db → Connect → External** → copy the external
+   connection string.
+2. GitHub repo → **Settings → Secrets and variables → Actions → New
+   repository secret**:
+   - `DATABASE_URL` = the external connection string
+   - (optional) `DJANGO_SECRET_KEY` = a stable key, e.g. the one generated on
+     **spotter-backend → Environment**
+3. **Actions** tab → enable workflows if prompted. Runs hourly on the hour,
+   plus **Run workflow** lets you fire it manually.
 
 ## 3. Frontend on Vercel
 
@@ -63,7 +79,8 @@ the API web service, and the hourly HOS-watchdog cron.
   and that driver's trip list.
 - Watchdog: assign a load with a high cycle to a driver, then run
   `python manage.py watch_hos` from the Render shell — the dispatcher board's
-  **watchdog** rail shows the new alert. The hourly cron keeps it fresh.
+  **watchdog** rail shows the new alert. The GitHub Actions schedule keeps it
+  fresh (or fire it manually from the Actions tab).
 - Public demo still live at `/explore` (no login): `Dallas, TX` →
   `Houston, TX` → expect ~238 mi and 2 log sheets.
 
