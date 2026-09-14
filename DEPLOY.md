@@ -37,7 +37,7 @@ schedule instead (Render offers no free cron tier — see section 2b).
    `CORS_ALLOWED_ORIGINS` on **spotter-backend** to
    `https://spotter-trip-planner.vercel.app` (once Vercel exists) and redeploy.
    The blueprint already sets this to both known Vercel origins.
-5. Verify: open `https://spotter-backend.onrender.com/api/health/` →
+5. Verify: open your backend URL `/api/health/` (see dashboard) →
    should return `{"status":"ok","database":"ok"}`.
 
 > Never set `DJANGO_CORS_ALLOW_ALL=True` in prod — protected org endpoints
@@ -70,7 +70,8 @@ sells paid plans for cron jobs.
    Vercel reads `frontend/vercel.json` (framework Vite, build
    `npm install && npm run build`, output `dist`).
 3. Add an environment variable:
-   - `VITE_API_BASE_URL` = `https://spotter-backend.onrender.com`
+   - `VITE_API_BASE_URL` = your Render URL, e.g.
+     `https://spotter-backend-t1z4.onrender.com`
 4. Deploy. You'll get `https://spotter-<something>.vercel.app`.
 
 ## 4. Final checks

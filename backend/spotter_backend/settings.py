@@ -31,7 +31,7 @@ SECRET_KEY = os.environ.get(
 DEBUG = os.environ.get("DJANGO_DEBUG", "True").lower() == "true"
 
 ALLOWED_HOSTS = os.environ.get(
-    "DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1,spotter-backend.onrender.com,*.onrender.com"
+    "DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1,.onrender.com"
 ).split(",")
 
 
