@@ -73,6 +73,8 @@ sells paid plans for cron jobs.
    - `VITE_API_BASE_URL` = your Render URL, e.g.
      `https://spotter-backend-t1z4.onrender.com`
 4. Deploy. You'll get `https://spotter-<something>.vercel.app`.
+   `frontend/vercel.json` includes a SPA rewrite (`/` → `index.html`) so a
+   hard refresh on any route (e.g. `/admin`) never 404s.
 
 ## 4. Final checks
 
