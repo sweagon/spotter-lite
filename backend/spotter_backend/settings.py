@@ -22,9 +22,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # in production this MUST come from the environment; the fallback is a
 # throwaway value that only exists so `manage.py runserver` works out of
 # the box for local dev.
-SECRET_KEY = os.environ.get(
-    "DJANGO_SECRET_KEY",
-    'django-insecure-p^c=dw$&dt1bn254(^@##ww99u=!y5i8psj0x)58-qkq0n2%@a',
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY") or (
+    'django-insecure-p^c=dw$&dt1bn254(^@##ww99u=!y5i8psj0x)58-qkq0n2%@a'
 )
 
 # SECURITY WARNING: don't run with debug turned on in production!
