@@ -1,7 +1,7 @@
 # Deploy runbook — how to ship Spotter from this machine
 
 You'll need: a GitHub account, a Render account, and a Vercel account.
-All configs are already committed in the repo (`render.yaml`, `vercel.json`,
+All configs are already committed in the repo (`render.yaml`, `frontend/vercel.json`,
 env-var handling in `backend/spotter_backend/settings.py` and
 `frontend/src/api.js`).
 
@@ -61,14 +61,17 @@ sells paid plans for cron jobs.
 
 ## 3. Frontend on Vercel
 
-1. Vercel dashboard → **New Project** → import your GitHub repo.
-2. **Root directory**: `frontend` (Vercel reads `vercel.json` which sets this,
-   but pick it in the UI too).
-3. **Build command**: leave as detected (`npm install && npm run build`).
-4. **Output directory**: `dist`.
-5. Add an environment variable:
+> Vercel only hosts the single frontend service. The deploy config lives in
+> `frontend/vercel.json` (moved out of the repo root so Vercel doesn't treat
+> `backend/` as a second service it must host — it can't run Django).
+
+1. Vercel dashboard → **Add New → Project** → import your GitHub repo.
+2. **Root directory**: `frontend` — pick it from the directory list.
+   Vercel reads `frontend/vercel.json` (framework Vite, build
+   `npm install && npm run build`, output `dist`).
+3. Add an environment variable:
    - `VITE_API_BASE_URL` = `https://spotter-backend.onrender.com`
-6. Deploy. You'll get `https://spotter-<something>.vercel.app`.
+4. Deploy. You'll get `https://spotter-<something>.vercel.app`.
 
 ## 4. Final checks
 
