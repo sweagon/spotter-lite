@@ -27,11 +27,14 @@ const iconFor = (stop) =>
   });
 
 export default function RouteMap({ geometry, stops }) {
-  const latlngs = geometry.map(([lon, lat]) => [lat, lon]);
-  const center = latlngs[Math.floor(latlngs.length / 2)];
-  // draw the polyline in on mount: full dash, then transition to 0 offset.
   const pathRef = useRef(null);
   const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const latlngs = (geometry ?? []).map(([lon, lat]) => [lat, lon]);
+  if (latlngs.length < 2) {
+    return <div className="map"><div className="map-empty-note">Route preview unavailable.</div></div>;
+  }
+  const center = latlngs[Math.floor(latlngs.length / 2)];
+  // draw the polyline in on mount: full dash, then transition to 0 offset.
   const dash = reduced ? undefined : [latlngs.length * 1000];
 
   return (

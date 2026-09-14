@@ -19,18 +19,29 @@ export default function SafetyView() {
   const [expanded, setExpanded] = useState(null);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
 
   async function loadAll() {
-    const [d, t, a, v] = await Promise.all([
-      apiJson("/api/drivers/"),
-      apiJson("/api/trips/"),
-      apiJson("/api/alerts/"),
-      apiJson("/api/vehicles/"),
-    ]);
-    if (d.ok) setDrivers(d.data);
-    if (t.ok) setTrips(t.data);
-    if (a.ok) setAlerts(a.data);
-    if (v.ok) setVehicles(v.data);
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const [d, t, a, v] = await Promise.all([
+        apiJson("/api/drivers/"),
+        apiJson("/api/trips/"),
+        apiJson("/api/alerts/"),
+        apiJson("/api/vehicles/"),
+      ]);
+      if (d.ok) setDrivers(d.data);
+      if (t.ok) setTrips(t.data);
+      if (a.ok) setAlerts(a.data);
+      if (v.ok) setVehicles(v.data);
+      if (!d.ok || !t.ok) setLoadError("Some fleet data couldn't load. Please retry.");
+    } catch {
+      setLoadError("Couldn't reach the Spotter server. Please retry.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -55,6 +66,8 @@ export default function SafetyView() {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
+    } catch {
+      setExportError("Couldn't reach the server to build the packet. Please retry.");
     } finally {
       setExporting(false);
     }
@@ -81,6 +94,24 @@ export default function SafetyView() {
         </div>
       )}
 
+      {loadError && (
+        <div className="panel-error" role="alert">
+          <p className="panel-error-title">Something went wrong.</p>
+          <p>{loadError}</p>
+          <p><button className="btn-mini" onClick={loadAll}>Retry</button></p>
+        </div>
+      )}
+
+      {loading && (
+        <div className="loading" aria-busy="true" role="status">
+          <div className="sk-gauge" />
+          <div className="sk-gauge" />
+          <div className="sk-log" />
+        </div>
+      )}
+
+      {!loading && (
+      <>
       <div className="kpi-strip">
         <div className="kpi-card">
           <span className="num kpi-num">{openAlerts.length}</span>
@@ -174,6 +205,8 @@ export default function SafetyView() {
           );
         })}
       </section>
+      </>
+      )}
     </div>
   );
 }

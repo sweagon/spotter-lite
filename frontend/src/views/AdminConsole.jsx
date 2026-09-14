@@ -22,15 +22,25 @@ export default function AdminConsole() {
   const [vForm, setVForm] = useState(null);
   const [flash, setFlash] = useState(null);
   const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
 
   async function load() {
-    const [d, v] = await Promise.all([
-      apiJson("/api/drivers/"),
-      apiJson("/api/vehicles/"),
-    ]);
-    if (d.ok) setDrivers(d.data);
-    if (v.ok) setVehicles(v.data);
+    setLoading(true);
+    setError(null);
+    try {
+      const [d, v] = await Promise.all([
+        apiJson("/api/drivers/"),
+        apiJson("/api/vehicles/"),
+      ]);
+      if (d.ok) setDrivers(d.data);
+      if (v.ok) setVehicles(v.data);
+      if (!d.ok || !v.ok) setError("We couldn't load the fleet. Please retry.");
+    } catch {
+      setError("We couldn't reach the server to load the fleet. Please retry.");
+    } finally {
+      setLoading(false);
+    }
   }
   useEffect(() => { load(); }, []);
 
@@ -42,56 +52,71 @@ export default function AdminConsole() {
   async function submitDriver() {
     setBusy(true);
     setError(null);
-    const payload = {
-      username: dForm.username.trim(),
-      password: dForm.password,
-      first_name: dForm.first_name.trim(),
-      last_name: dForm.last_name.trim(),
-      role: dForm.role,
-      vehicle_id: dForm.vehicle_id ? Number(dForm.vehicle_id) : null,
-      cycle_used: Number(dForm.cycle_used),
-    };
-    const { ok, data } = await apiJson(
-      dForm.editing ? `/api/drivers/${dForm.id}/` : "/api/drivers/create/",
-      { method: dForm.editing ? "PATCH" : "POST", body: payload }
-    );
-    setBusy(false);
-    if (ok) {
-      setDForm(null);
-      await load();
-      notify(dForm.editing ? `Driver #${data.id} updated.` : `Driver ${data.user.username} added.`);
-    } else {
-      setError(data?.error || "We couldn't save the driver. Check the fields and try again.");
+    try {
+      const payload = {
+        username: dForm.username.trim(),
+        password: dForm.password,
+        first_name: dForm.first_name.trim(),
+        last_name: dForm.last_name.trim(),
+        role: dForm.role,
+        vehicle_id: dForm.vehicle_id ? Number(dForm.vehicle_id) : null,
+        cycle_used: Number(dForm.cycle_used),
+      };
+      const { ok, data } = await apiJson(
+        dForm.editing ? `/api/drivers/${dForm.id}/` : "/api/drivers/create/",
+        { method: dForm.editing ? "PATCH" : "POST", body: payload }
+      );
+      if (ok) {
+        setDForm(null);
+        await load();
+        notify(dForm.editing ? `Driver #${data.id} updated.` : `Driver ${data.user.username} added.`);
+      } else {
+        setError(data?.error || "We couldn't save the driver. Check the fields and try again.");
+      }
+    } catch {
+      setError("We couldn't reach the server to save the driver. Please retry.");
+    } finally {
+      setBusy(false);
     }
   }
 
   async function submitVehicle() {
     setBusy(true);
     setError(null);
-    const payload = {
-      unit_no: vForm.unit_no.trim(),
-      vin: vForm.vin.trim(),
-      vehicle_type: vForm.vehicle_type,
-      current_odometer: vForm.current_odometer ? Number(vForm.current_odometer) : null,
-    };
-    if (vForm.editing) payload.active = vForm.active;
-    const { ok, data } = await apiJson(
-      vForm.editing ? `/api/vehicles/${vForm.id}/` : "/api/vehicles/",
-      { method: vForm.editing ? "PATCH" : "POST", body: payload }
-    );
-    setBusy(false);
-    if (ok) {
-      setVForm(null);
-      await load();
-      notify(vForm.editing ? `Vehicle ${data.unit_no} updated.` : `Vehicle ${data.unit_no} added.`);
-    } else {
-      setError(data?.error || "We couldn't save the vehicle. Check the fields and try again.");
+    try {
+      const payload = {
+        unit_no: vForm.unit_no.trim(),
+        vin: vForm.vin.trim(),
+        vehicle_type: vForm.vehicle_type,
+        current_odometer: vForm.current_odometer ? Number(vForm.current_odometer) : null,
+      };
+      if (vForm.editing) payload.active = vForm.active;
+      const { ok, data } = await apiJson(
+        vForm.editing ? `/api/vehicles/${vForm.id}/` : "/api/vehicles/",
+        { method: vForm.editing ? "PATCH" : "POST", body: payload }
+      );
+      if (ok) {
+        setVForm(null);
+        await load();
+        notify(vForm.editing ? `Vehicle ${data.unit_no} updated.` : `Vehicle ${data.unit_no} added.`);
+      } else {
+        setError(data?.error || "We couldn't save the vehicle. Check the fields and try again.");
+      }
+    } catch {
+      setError("We couldn't reach the server to save the vehicle. Please retry.");
+    } finally {
+      setBusy(false);
     }
   }
 
   async function resetCycle(id, done) {
-    const { ok } = await apiJson(`/api/drivers/${id}/reset-cycle/`, { method: "POST", body: {} });
-    if (ok) { await load(); notify(`Driver cycle reset to 00:00.`); }
+    setError(null);
+    try {
+      const { ok } = await apiJson(`/api/drivers/${id}/reset-cycle/`, { method: "POST", body: {} });
+      if (ok) { await load(); notify(`Driver cycle reset to 00:00.`); }
+    } catch {
+      setError("We couldn't reach the server to reset the cycle. Please retry.");
+    }
     if (done) done();
   }
 
@@ -122,8 +147,17 @@ export default function AdminConsole() {
         {flash && <div className="toast">{flash}</div>}
         {error && (
           <div className="panel-error" role="alert">
-            <p className="panel-error-title">We couldn't save your changes.</p>
+            <p className="panel-error-title">Something went wrong.</p>
             <p>{error}</p>
+            <p><button className="btn-mini" onClick={load}>Retry</button></p>
+          </div>
+        )}
+
+        {loading && !dForm && !vForm && (
+          <div className="loading" aria-busy="true" role="status">
+            <div className="sk-gauge" />
+            <div className="sk-gauge" />
+            <div className="sk-log" />
           </div>
         )}
 
@@ -231,6 +265,9 @@ export default function AdminConsole() {
                 </tr>
               </thead>
               <tbody>
+                {drivers.length === 0 && !loading && (
+                  <tr><td className="trip-empty" colSpan={7}>No drivers yet. Add your first driver above.</td></tr>
+                )}
                 {drivers.map((d) => (
                   <tr key={d.id}>
                     <td className="num">{d.user.username}<br /><span className="muted">{d.user.first_name} {d.user.last_name}</span></td>
@@ -270,6 +307,9 @@ export default function AdminConsole() {
                 </tr>
               </thead>
               <tbody>
+                {vehicles.length === 0 && !loading && (
+                  <tr><td className="trip-empty" colSpan={7}>No vehicles yet. Add your first vehicle above.</td></tr>
+                )}
                 {vehicles.map((v) => (
                   <tr key={v.id}>
                     <td className="num">{v.unit_no}</td>

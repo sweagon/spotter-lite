@@ -58,7 +58,7 @@ const TOTALS_X = MARGIN.left + GRID_W + 12;
 const TOTALS_W = 62;
 const REMARK_DROP = 11;
 
-export default function LogSheet({ day, index, cycleUsed }) {
+export default function LogSheet({ day, index, cycleUsed, carrier = "Spotter", vehicleNo, trailerNo }) {
   const segs = useMemo(() => normalizeSegments(day.segments), [day.segments]);
   const { runs, transitions } = useMemo(() => buildDutyLine(segs), [segs]);
   const remarks = useMemo(
@@ -100,9 +100,9 @@ export default function LogSheet({ day, index, cycleUsed }) {
         </text>
         <FormField x={318} label="Date" value={pretty} />
         <FormField x={452} label="Total miles" value={String(dayMiles)} mono />
-        <FormField x={598} label="Carrier" value="—" />
-        <FormField x={744} label="Vehicle no." value="—" />
-        <FormField x={810} label="Trailer no." value="—" />
+        <FormField x={598} label="Carrier" value={carrier} />
+        <FormField x={744} label="Vehicle no." value={vehicleNo || "—"} />
+        <FormField x={810} label="Trailer no." value={trailerNo || "—"} />
         <text x={VIEW.w - 20} y="30" className="sheet-title sheet-title--cram" textAnchor="end">
           24-HOUR GRID · 49 CFR 395.8
         </text>

@@ -3,7 +3,7 @@ import LogSheet from "./LogSheet";
 /** the driver's live RODS for today — drawn from real duty events via the
  * same LogSheet geometry as the planned sheets, so the checksum still sums
  * to 24.00. planning-grade, not an engine-linked ELD record. */
-export default function LiveLogDay({ day, cycleUsed, drivingHours }) {
+export default function LiveLogDay({ day, cycleUsed, drivingHours, vehicleUnit }) {
   if (!day) return null;
   return (
     <div className="live-log">
@@ -19,7 +19,7 @@ export default function LiveLogDay({ day, cycleUsed, drivingHours }) {
           <span className="live-log-stat-label">Driving hours today</span>
         </div>
       </div>
-      <LogSheet day={day} index={0} cycleUsed={cycleUsed} />
+      <LogSheet day={day} index={0} cycleUsed={cycleUsed} vehicleNo={vehicleUnit} />
     </div>
   );
 }

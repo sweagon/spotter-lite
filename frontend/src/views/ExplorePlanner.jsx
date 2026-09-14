@@ -57,7 +57,7 @@ export default function ExplorePlanner() {
         }
       >
         {error && (
-          <div className="panel-error" role="alert" style={{ marginBottom: 16 }}>
+          <div className="panel-error explore-error" role="alert">
             <p className="panel-error-title">We couldn't plan that trip.</p>
             <p>{error}</p>
           </div>

@@ -27,7 +27,13 @@ export default function LoginView() {
       const user = await login(username.trim(), password);
       navigate(user.role === "Dispatcher" ? "/dispatch" : "/", { replace: true });
     } catch (err) {
-      setError(err.message || "We couldn't sign you in. Check your credentials and try again.");
+      const msg = err?.message ?? "";
+      const network = !msg || /failed to fetch|network|fetch|load failed/i.test(msg);
+      setError(
+        network
+          ? "Can't reach the Spotter server right now — it may be waking from standby. Give it a moment and try again."
+          : msg || "We couldn't sign you in. Check your credentials and try again."
+      );
     } finally {
       setBusy(false);
     }
@@ -109,7 +115,6 @@ export default function LoginView() {
                   className="input-reveal-btn"
                   onClick={() => setShow((s) => !s)}
                   aria-label={show ? "Hide password" : "Show password"}
-                  tabIndex={-1}
                 >
                   {show ? "Hide" : "Show"}
                 </button>

@@ -7,6 +7,12 @@ import LogSheet from "./LogSheet";
  * timeline and the daily log sheets. shared by the live planner, saved
  * trips, and the public explorer so every view renders identically. */
 export default function PlanResults({ result, pickup, dropoff }) {
+  const vehicleNo =
+    result.vehicle?.unit_no ??
+    result.trip?.vehicle?.unit_no ??
+    result.driver?.vehicle_unit ??
+    "";
+
   return (
     <div className="results">
       <div className="route-summary">
@@ -47,6 +53,7 @@ export default function PlanResults({ result, pickup, dropoff }) {
               day={day}
               index={i}
               cycleUsed={result.usage?.cycle_hours ?? result.cycle_used}
+              vehicleNo={vehicleNo}
             />
           </div>
         ))}

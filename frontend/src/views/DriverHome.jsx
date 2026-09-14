@@ -42,6 +42,7 @@ export default function DriverHome() {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState(null);
+  const [loading, setLoading] = useState(true);
   const toastTimer = useRef(null);
 
   const duty = me?.duty ?? null;
@@ -54,9 +55,19 @@ export default function DriverHome() {
   }
 
   async function refresh() {
-    const [m, t] = await Promise.all([apiJson("/api/me/"), apiJson("/api/trips/")]);
-    if (m.ok) setMe(m.data);
-    if (t.ok) setTrips(t.data);
+    setLoading(true);
+    setError(null);
+    try {
+      const [m, t] = await Promise.all([apiJson("/api/me/"), apiJson("/api/trips/")]);
+      if (m.ok) setMe(m.data);
+      else throw new Error("me");
+      if (t.ok) setTrips(t.data);
+    } catch {
+      setMe(null);
+      setError("We couldn't reach the Spotter server. Please retry.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -82,30 +93,42 @@ export default function DriverHome() {
       } else {
         setError(data?.error || "We couldn't plan that trip. Check the pickup and drop-off, then try again.");
       }
+    } catch {
+      setError("We couldn't reach the server to plan the trip. Please retry.");
     } finally {
       setBusy(false);
     }
   }
 
   async function openTrip(tripId) {
-    const { ok, data } = await apiJson(`/api/trips/${tripId}/`);
-    if (ok) {
-      setResult(null);
-      setSelected(data);
+    try {
+      const { ok, data } = await apiJson(`/api/trips/${tripId}/`);
+      if (ok) {
+        setResult(null);
+        setSelected(data);
+      } else {
+        setError(data?.error || "We couldn't open that trip. Try again.");
+      }
+    } catch {
+      setError("We couldn't reach the server to open the trip. Please retry.");
     }
   }
 
   async function commitDuty(status, note) {
-    const { ok, data } = await apiJson("/api/duty/events/", {
-      method: "POST",
-      body: { status, remark: note },
-    });
-    if (ok) {
-      setMe((m) => ({ ...m, duty: data }));
-      flash(`Duty status set to ${STATUS_LABEL[status] ?? status.replaceAll("_", " ")}.`);
-      return true;
+    try {
+      const { ok, data } = await apiJson("/api/duty/events/", {
+        method: "POST",
+        body: { status, remark: note },
+      });
+      if (ok) {
+        setMe((m) => ({ ...m, duty: data }));
+        flash(`Duty status set to ${STATUS_LABEL[status] ?? status.replaceAll("_", " ")}.`);
+        return true;
+      }
+      setError(data?.error || "We couldn't update your duty status. Try again.");
+    } catch {
+      setError("We couldn't reach the server to update your duty status. Please retry.");
     }
-    setError(data?.error || "We couldn't update your duty status. Try again.");
     return false;
   }
 
@@ -130,6 +153,8 @@ export default function DriverHome() {
       } else {
         setError(data?.error || "We couldn't update the trip. Try again.");
       }
+    } catch {
+      setError("We couldn't reach the server to update the trip. Please retry.");
     } finally {
       setBusy(false);
     }
@@ -244,6 +269,15 @@ export default function DriverHome() {
         <div className="panel-error" role="alert">
           <p className="panel-error-title">Something went wrong.</p>
           <p>{error}</p>
+          <p><button className="btn-mini" onClick={refresh}>Retry</button></p>
+        </div>
+      )}
+
+      {loading && !me && !error && (
+        <div className="loading" aria-busy="true" role="status">
+          <div className="sk-gauge" />
+          <div className="sk-gauge" />
+          <div className="sk-log" />
         </div>
       )}
 
@@ -261,6 +295,7 @@ export default function DriverHome() {
                 day={todayDay}
                 cycleUsed={profile?.cycle_used}
                 drivingHours={duty.today_driving_hours}
+                vehicleUnit={profile?.vehicle_unit}
               />
             )}
             {!todayDay && (

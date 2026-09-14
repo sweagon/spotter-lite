@@ -24,9 +24,16 @@ export default function DispatchBoard() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const initialFetch = async () => {
+    loadAll();
+  }, []);
+
+  async function loadAll() {
+    setLoading(true);
+    setError(null);
+    try {
       const [t, d, v, a] = await Promise.all([
         apiJson("/api/trips/"),
         apiJson("/api/drivers/"),
@@ -37,21 +44,12 @@ export default function DispatchBoard() {
       if (d.ok) setDrivers(d.data);
       if (v.ok) setVehicles(v.data);
       if (a.ok) setAlerts(a.data);
-    };
-    initialFetch();
-  }, []);
-
-  async function loadAll() {
-    const [t, d, v, a] = await Promise.all([
-      apiJson("/api/trips/"),
-      apiJson("/api/drivers/"),
-      apiJson("/api/vehicles/"),
-      apiJson("/api/alerts/"),
-    ]);
-    if (t.ok) setTrips(t.data);
-    if (d.ok) setDrivers(d.data);
-    if (v.ok) setVehicles(v.data);
-    if (a.ok) setAlerts(a.data);
+      if (!t.ok) throw new Error("trips");
+    } catch {
+      setError("We couldn't load the dispatch board. Please retry.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function plan(payload) {
@@ -68,30 +66,48 @@ export default function DispatchBoard() {
       } else {
         setError(data?.error || "We couldn't plan that trip. Check the details and try again.");
       }
+    } catch {
+      setError("We couldn't reach the server to plan the trip. Please retry.");
     } finally {
       setBusy(false);
     }
   }
 
   async function advance(trip, next) {
-    const { ok, data } = await apiJson(`/api/trips/${trip.id}/`, {
-      method: "PATCH",
-      body: { status: next },
-    });
-    if (ok) {
-      setTrips((ts) => ts.map((t) => (t.id === data.id ? data : t)));
-      setExpanded((e) => (e && e.id === data.id ? data : e));
+    setError(null);
+    try {
+      const { ok, data } = await apiJson(`/api/trips/${trip.id}/`, {
+        method: "PATCH",
+        body: { status: next },
+      });
+      if (ok) {
+        setTrips((ts) => ts.map((t) => (t.id === data.id ? data : t)));
+        setExpanded((e) => (e && e.id === data.id ? data : e));
+      } else {
+        setError(data?.error || "We couldn't update the trip. Try again.");
+      }
+    } catch {
+      setError("We couldn't reach the server to update the trip. Please retry.");
     }
   }
 
   async function resolveAlert(id) {
-    await apiJson(`/api/alerts/${id}/resolve/`, { method: "POST" });
-    setAlerts((al) => al.filter((x) => x.id !== id));
+    try {
+      await apiJson(`/api/alerts/${id}/resolve/`, { method: "POST" });
+      setAlerts((al) => al.filter((x) => x.id !== id));
+    } catch {
+      setError("We couldn't dismiss that flag. Please retry.");
+    }
   }
 
   async function resetCycle(id) {
-    const { ok } = await apiJson(`/api/drivers/${id}/reset-cycle/`, { method: "POST", body: {} });
-    if (ok) loadAll();
+    try {
+      const { ok } = await apiJson(`/api/drivers/${id}/reset-cycle/`, { method: "POST", body: {} });
+      if (ok) loadAll();
+      else setError("We couldn't reset the cycle. Try again.");
+    } catch {
+      setError("We couldn't reach the server to reset the cycle. Please retry.");
+    }
   }
 
   const nextStatus = {
@@ -145,10 +161,22 @@ export default function DispatchBoard() {
     >
       {error && (
           <div className="panel-error" role="alert">
-            <p className="panel-error-title">We couldn't plan that trip.</p>
+            <p className="panel-error-title">Something went wrong.</p>
             <p>{error}</p>
+            <p><button className="btn-mini" onClick={() => { setError(null); loadAll(); }}>Retry</button></p>
           </div>
         )}
+
+        {loading && (
+          <div className="loading" aria-busy="true" role="status">
+            <div className="sk-gauge" />
+            <div className="sk-gauge" />
+            <div className="sk-log" />
+          </div>
+        )}
+
+        {!loading && (
+          <>
 
         <div className="board-filters">
           <button className={`chip ${tab === "trips" ? "chip-on" : ""}`} onClick={() => setTab("trips")}>
@@ -242,7 +270,7 @@ export default function DispatchBoard() {
 
         {tab === "trips" && !planning && (
           <>
-            <div className="board-filters">
+            <div className="board-filters board-filters--sub">
               <button className={`chip ${statusFilter === "all" ? "chip-on" : ""}`} onClick={() => setStatusFilter("all")}>
                 All <span className="num">{trips.length}</span>
               </button>
@@ -261,7 +289,12 @@ export default function DispatchBoard() {
                 const open = expanded?.id === t.id;
                 return (
                   <article key={t.id} className={`board-card ${open ? "board-open" : ""}`}>
-                    <div className="board-card-head" onClick={() => { setExpanded(open ? null : t); setResult(null); }}>
+                    <button
+                      type="button"
+                      className="board-card-head"
+                      onClick={() => { setExpanded(open ? null : t); setResult(null); }}
+                      aria-expanded={open}
+                    >
                       <span className={`badge badge-${t.status}`}>{t.status_label}</span>
                       <span className="board-card-route">
                         <strong>#{t.id}</strong> {t.pickup_location} → {t.dropoff_location}
@@ -270,7 +303,7 @@ export default function DispatchBoard() {
                         {t.driver ? `${t.driver.user.username}` : "Unstaffed"} · {t.vehicle ? t.vehicle.unit_no : "No unit"} · {t.distance_miles} mi
                       </span>
                       <span className="board-expand">{open ? "▲" : "▼"}</span>
-                    </div>
+                    </button>
 
                     {open && (
                       <div className="board-card-body">
@@ -300,6 +333,8 @@ export default function DispatchBoard() {
             </div>
           </>
         )}
+      </>
+      )}
     </Board>
   );
 }

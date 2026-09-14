@@ -8,6 +8,16 @@ import { useEffect, useRef, useState } from "react";
 export default function Board({ rail, children, className = "" }) {
   const [open, setOpen] = useState(false);
   const railRef = useRef(null);
+  const [mobile, setMobile] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(max-width: 899px)").matches
+  );
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 899px)");
+    const onChange = (e) => setMobile(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
 
   useEffect(() => {
     function onToggle(e) {
@@ -27,6 +37,10 @@ export default function Board({ rail, children, className = "" }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
 
+  // on mobile the off-canvas drawer must leave the tab order when closed;
+  // on desktop the rail is an always-visible sidebar and stays interactive.
+  const railHidden = mobile && !open;
+
   return (
     <div className={`shell ${className}`}>
       <div
@@ -34,7 +48,13 @@ export default function Board({ rail, children, className = "" }) {
         onClick={() => setOpen(false)}
         aria-hidden={!open}
       />
-      <aside ref={railRef} className={`rail ${open ? "rail-open" : ""}`} aria-label="Sidebar">
+      <aside
+        ref={railRef}
+        className={`rail ${open ? "rail-open" : ""}`}
+        aria-label="Sidebar"
+        inert={railHidden || undefined}
+        aria-hidden={railHidden || undefined}
+      >
         {rail}
       </aside>
       <main className="canvas" id="main">
