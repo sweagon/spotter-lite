@@ -1,8 +1,8 @@
 # Deploy runbook — how to ship Spotter from this machine
 
 You'll need: a GitHub account, a Render account, and a Vercel account.
-All configs are already committed in the repo (`backend/render.yaml`,
-`vercel.json`, env-var handling in `backend/spotter_backend/settings.py` and
+All configs are already committed in the repo (`render.yaml`, `vercel.json`,
+env-var handling in `backend/spotter_backend/settings.py` and
 `frontend/src/api.js`).
 
 ## 1. Push to GitHub (do this first — Render & Vercel deploy from GitHub)
@@ -20,7 +20,7 @@ the API web service, and the hourly HOS-watchdog cron.
 ## 2. Backend on Render (blueprint)
 
 1. Render dashboard → **New → Blueprint** → pick the GitHub repo → it reads
-   `backend/render.yaml` automatically.
+   `render.yaml` automatically.
 2. Confirm the three resources it creates:
    - **spotter-db** (Postgres, free)
    - **spotter-backend** (web service)
